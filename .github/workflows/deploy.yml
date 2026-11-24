@@ -1,0 +1,67 @@
+# Régénère les données (géométrie, types de prises, blocs) puis compile et publie le site sur GitHub Pages.
+# Déclenché à chaque push sur main, chaque nuit, et à la main (onglet Actions > Run workflow).
+name: Données et déploiement
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 4 * * *"        # 4 h 17 UTC, après la génération nocturne des snapshots Boardsesh
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Blocs gardés par board (0 = tous)"
+        default: "2000"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Cache des snapshots et fichiers sources : seuls les snapshots qui ont changé sont retéléchargés
+      - uses: actions/cache@v4
+        with:
+          path: .cache/board-data
+          key: board-data-${{ github.run_id }}
+          restore-keys: board-data-
+
+      - name: Générer les données
+        run: python3 scripts/build_board_data.py --limit "${{ github.event.inputs.limit || '2000' }}"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Compiler le site
+        run: |
+          npm install --no-audit --no-fund
+          npm run build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

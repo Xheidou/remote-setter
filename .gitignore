@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.cache/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Données générées par scripts/build_board_data.py (reconstruites chaque nuit par la CI)
+public/data/
