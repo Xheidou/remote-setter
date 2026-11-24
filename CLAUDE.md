@@ -26,6 +26,7 @@ npm run build        # dist/
 - Géométrie et contours : dépôt Boardsesh (Apache-2.0), `hole-placements/<board>.cjs` et `board-art-geometry/<board>/<layout>-<size>.cjs`. Rayon de contour = 4 unités Aurora (pouces) ; MoonBoard = 0,525 × pas de grille (0,20 m).
 - Blocs : snapshots publics Boardsesh (`snapshots.boardsesh.com/board-snapshots/v1-gzip/manifest.json`). Conditions : héberger soi-même, ne pas appeler leurs serveurs depuis le site, créditer les ouvreurs.
 - Types de prises : CruxCoach (CC BY 4.0), fichiers `androidApp/src/main/assets/hold_types/*.json`, présents seulement dans leur PR n° 95 → `TYPES_REF` figé sur le commit `a9fc009`. Le script échoue si une board n'a aucun type (sauf `--allow-missing-types`).
+- Versions figées dans le script : `BOARDSESH_REF` (commit `b3a0285`, géométrie et contours) et `TYPES_REF` (CruxCoach `a9fc009`). Seuls les blocs (snapshots) changent chaque nuit. Three.js figé à 0.147.0 ; `package-lock.json` à committer après le premier `npm install`.
 - Approximations : kicker Tension estimé ; positions MoonBoard reconstruites sur grille ; relief des prises = forme type par catégorie.
 
 ## Décisions déjà prises (ne pas revenir dessus sans demander)
@@ -36,7 +37,7 @@ npm run build        # dist/
 
 ## Pistes suivantes
 
-1. Figer aussi la version Boardsesh ; regrouper les maillages des prises (perf mobile).
+1. Regrouper les maillages des prises (perf mobile) ; contrôles de génération.
 2. Blocs : filtres (cotation, angle, répétitions, qualité, ouvreur), tri, fichiers découpés, liens partageables `#board/bloc/angle`, favoris.
 3. Allumer la board en Bluetooth (comme Boardsesh), éditeur de blocs, analyse des distances entre prises, réalité augmentée.
 4. Avant diffusion publique : contacter Boardsesh et CruxCoach, vérifier les droits sur les contours et les marques.

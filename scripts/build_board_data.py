@@ -65,6 +65,9 @@ TYPES_CREDIT = "Hold types by CruxCoach (https://github.com/CruxCoach/CruxCoach)
 # Les fichiers de types n'existent pour l'instant que dans la demande de fusion n° 95 de CruxCoach (pas sur
 # une branche) : on lit ce commit précis. À mettre à jour quand leurs étiquettes seront fusionnées ou validées.
 TYPES_REF = "a9fc009c8a4fc66b19c880994541e396ed894d1d"
+# Géométrie et contours des prises : commit Boardsesh vérifié (24/11/2026). Changer volontairement, après test :
+#   python3 scripts/build_board_data.py --no-climbs --ref <nouveau commit>   puis contrôler le site en local.
+BOARDSESH_REF = "b3a0285908da0d9e4be984ebe5731ed72b33de10"
 
 # Rôles des prises (codes des frames "p<placement>r<rôle>"), d'après Boardsesh hold-states.ts
 ROLE_CODES = {
@@ -423,7 +426,7 @@ def main():
     ap.add_argument("--no-climbs", action="store_true", help="géométrie seule ; garde les blocs déjà générés")
     ap.add_argument("--cache", default=os.path.join(ROOT, ".cache", "board-data"))
     ap.add_argument("--repo-dir", default=None, help="clone local de boardsesh/boardsesh")
-    ap.add_argument("--ref", default="main", help="branche ou commit GitHub de Boardsesh")
+    ap.add_argument("--ref", default=BOARDSESH_REF, help="commit (ou branche) Boardsesh pour la géométrie")
     ap.add_argument("--types-dir", default=None, help="dossier local des fichiers hold_types de CruxCoach")
     ap.add_argument("--types-ref", default=TYPES_REF, help="commit ou branche CruxCoach contenant hold_types/")
     ap.add_argument("--no-types", action="store_true", help="ne pas ajouter les types de prises")

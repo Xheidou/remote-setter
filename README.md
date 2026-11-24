@@ -35,6 +35,8 @@ Tout est produit par `scripts/build_board_data.py`, dans `public/data/` (non ver
 | `boards/<id>.json` | Géométrie : dimensions, plages d'angle et de kicker, prises (position, teinte, type, orientation), contours |
 | `climbs/<id>.json` | Blocs les plus répétés : prises et rôles, ouvreur, cotation et répétitions par angle |
 
+Les sources de géométrie sont figées sur des commits précis (`BOARDSESH_REF`, `TYPES_REF` dans le script) : seuls les blocs changent chaque nuit. Pour passer à une version plus récente, la tester en local avec `--ref` / `--types-ref` puis mettre à jour la constante.
+
 Le site ne charge que la board affichée. Les téléchargements sont mis en cache dans `.cache/board-data/` et ne sont refaits que si la source a changé.
 
 Options utiles du script (`npm run data -- --help` pour la liste complète) :

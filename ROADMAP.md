@@ -13,8 +13,9 @@ Valeur : ★ utile · ★★ important · ★★★ ce qui distingue le projet.
 |---|---|---|
 | **1. Fiabiliser** (maintenant) | Un site stable, qui ne casse pas pendant la nuit | Sources figées, contrôles de la génération, performance mobile |
 | **2. Rendre les blocs utiles** (court terme) | Trouver, filtrer et partager un bloc parmi des dizaines de milliers | Filtres, tri, fichiers découpés, liens partageables, favoris |
-| **3. Se distinguer** (moyen terme) | Ce que les apps officielles ne font pas | Analyse des mouvements, comparaison d'angles, éditeur 3D |
+| **3. Se distinguer** (moyen terme) | Ce que les apps officielles ne font pas | Comparaison d'angles, éditeur 3D, variante d'un bloc existant |
 | **4. Relier au réel** (long terme) | Passer de l'écran à la board | Allumage Bluetooth, réalité augmentée, mode entraînement |
+| **5. Analyser** (en dernier) | Comprendre un bloc pour un grimpeur donné | Analyse des mouvements selon la taille et l'allonge |
 | **En continu** | Cadre juridique, qualité, communauté | Partenariats, droits, tests, retours utilisateurs |
 
 ---
@@ -23,7 +24,7 @@ Valeur : ★ utile · ★★ important · ★★★ ce qui distingue le projet.
 
 | Chantier | Détail | Effort | Valeur | Phase |
 |---|---|---|---|---|
-| Figer la version Boardsesh | Géométrie et contours lus sur un commit précis (comme CruxCoach), mise à jour volontaire | S | ★★ | 1 |
+| ~~Figer les versions~~ ✅ | Boardsesh (`b3a0285`) et CruxCoach (`a9fc009`) figés dans le script ; reste : committer `package-lock.json` | S | ★★ | 1 |
 | Contrôles de génération | Échouer si une board perd des prises, des contours ou la plupart de ses blocs par rapport à la veille | S | ★★ | 1 |
 | Alerte d'échec | Notification (e-mail GitHub déjà en place ; option Discord/Slack) | S | ★ | 1 |
 | Garde-fou des 60 jours | Commit automatique mensuel ou rappel, pour que GitHub ne suspende pas la tâche planifiée | S | ★ | 1 |
@@ -68,7 +69,7 @@ Valeur : ★ utile · ★★ important · ★★★ ce qui distingue le projet.
 
 | Chantier | Détail | Effort | Valeur | Phase |
 |---|---|---|---|---|
-| Analyse des mouvements | Distances entre prises successives comparées à la taille et à l'allonge ; repérer jetés et mouvements « pour grands » | M | ★★★ | 3 |
+| Analyse des mouvements | Distances entre prises successives comparées à la taille et à l'allonge ; repérer jetés et mouvements « pour grands » | M | ★★★ | 5 (en dernier) |
 | Profil du bloc | Proportion de réglettes, bacs, plats, pinces (déjà résumé) ; style « physique » ou « technique » | S | ★★ | 2 |
 | Recommandations | Blocs proches d'un bloc donné (mêmes types de prises, même cotation) | M | ★★ | 3 |
 | Mode entraînement | Séances, circuits, minuteur | L | ★ | 4 |
@@ -78,6 +79,7 @@ Valeur : ★ utile · ★★ important · ★★★ ce qui distingue le projet.
 | Chantier | Détail | Effort | Valeur | Phase |
 |---|---|---|---|---|
 | Éditeur de blocs 3D | Composer un bloc en cliquant les prises, le voir à tous les angles, l'exporter | L | ★★★ | 3 |
+| Variante d'un bloc existant | Depuis la fiche d'un bloc : « Créer une variante » ouvre l'éditeur pré-rempli (prises et rôles) ; brouillons gardés dans le navigateur, partage par lien | M | ★★★ | 3 |
 | Allumer la board | Commande des LEDs Kilter/Tension en Bluetooth depuis le navigateur (Web Bluetooth : Chrome et Android, pas Safari iOS) ; étudier d'abord comment Boardsesh le fait | L | ★★★ | 4 |
 | Réalité augmentée | Board à l'échelle 1 dans sa pièce (WebXR, téléphone) | L | ★★ | 4 |
 | Publier un bloc | Dépend des API officielles : à discuter avec Kilter / Boardsesh, pas de contournement | L | ★ | 4 |
@@ -98,7 +100,7 @@ Valeur : ★ utile · ★★ important · ★★★ ce qui distingue le projet.
 ## Prochaines étapes proposées
 
 1. Regrouper les maillages et adapter la qualité graphique au téléphone (performance).
-2. Figer la version Boardsesh et ajouter les contrôles de génération.
-3. Filtres, tri, liens partageables et fichiers de blocs découpés.
+2. Ajouter les contrôles de génération.
+3. Refonte du panneau (board / recherche de blocs / fiche bloc), filtres, tri, liens partageables et fichiers de blocs découpés.
 4. Écrire à Boardsesh et à CruxCoach.
-5. Analyse des mouvements, puis éditeur de blocs.
+5. Éditeur de blocs et variantes d'un bloc existant ; l'analyse des mouvements en dernier.
