@@ -62,6 +62,9 @@ OUTLINE_PATH = "packages/shared/board-art-geometry/src/generated/{board}/{layout
 # Types de prises (jug, edge, sloper, pinch, pocket, volume, foot_chip) + orientation : CruxCoach, CC BY 4.0
 TYPES_RAW = "https://raw.githubusercontent.com/CruxCoach/CruxCoach/{ref}/androidApp/src/main/assets/hold_types/{board}.json"
 TYPES_CREDIT = "Hold types by CruxCoach (https://github.com/CruxCoach/CruxCoach), CC BY 4.0"
+# Les fichiers de types n'existent pour l'instant que dans la demande de fusion n° 95 de CruxCoach (pas sur
+# une branche) : on lit ce commit précis. À mettre à jour quand leurs étiquettes seront fusionnées ou validées.
+TYPES_REF = "a9fc009c8a4fc66b19c880994541e396ed894d1d"
 
 # Rôles des prises (codes des frames "p<placement>r<rôle>"), d'après Boardsesh hold-states.ts
 ROLE_CODES = {
@@ -422,8 +425,10 @@ def main():
     ap.add_argument("--repo-dir", default=None, help="clone local de boardsesh/boardsesh")
     ap.add_argument("--ref", default="main", help="branche ou commit GitHub de Boardsesh")
     ap.add_argument("--types-dir", default=None, help="dossier local des fichiers hold_types de CruxCoach")
-    ap.add_argument("--types-ref", default="feat/hold-types", help="branche ou commit CruxCoach")
+    ap.add_argument("--types-ref", default=TYPES_REF, help="commit ou branche CruxCoach contenant hold_types/")
     ap.add_argument("--no-types", action="store_true", help="ne pas ajouter les types de prises")
+    ap.add_argument("--allow-missing-types", action="store_true",
+                    help="continuer même si les types de prises n'ont pas pu être lus (sinon : échec)")
     ap.add_argument("--list", action="store_true")
     a = ap.parse_args()
 
@@ -451,6 +456,10 @@ def main():
         geo = build_geometry(k, cfg, repo, types)
         known = {h[0] for h in geo["holes"]}
         typed = sum(1 for h in geo["holes"] if h[4])
+        if not a.no_types and not typed and not a.allow_missing_types:
+            sys.exit(f"Aucun type de prise pour {cfg['name']} : source CruxCoach introuvable ({a.types_ref}). "
+                     "Génération arrêtée pour ne pas publier des prises sans modelage. "
+                     "Corriger --types-ref, ou relancer avec --allow-missing-types.")
         log(f"  {len(geo['holes'])} prises, {len(geo['outlines'])} avec contour réel, {typed} avec un type, "
             f"{geo['width']} m de large, panneau {geo['panel']} m")
         cl, stamp = [], None
