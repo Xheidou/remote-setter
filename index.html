@@ -12,98 +12,124 @@
 </head>
 <body>
 <aside>
-  <div>
-    <h1>Board 3D</h1>
-    <p class="sub">Visualiseur multi-boards : prises à leur vraie forme, dimensions et inclinaison à l'échelle humaine.</p>
-  </div>
+  <h1>Board 3D</h1>
 
-  <section>
-    <label for="board">Board</label>
-    <select id="board"></select>
-    <p class="hint" id="boardNote"></p>
-    <label for="finish" style="margin-top:10px">Finition du panneau</label>
-    <select id="finish">
-      <option value="noir">Peinture noire</option>
-      <option value="bois">Contreplaqué brut</option>
-      <option value="blanc">Peinture blanche</option>
-    </select>
-  </section>
-
-  <section>
-    <div class="lab"><span id="angleLab">Angle</span><output id="angleOut">40°</output></div>
-    <input type="range" id="angle" min="0" max="70" step="5" value="40" aria-labelledby="angleLab">
-    <div class="seg" id="angleSeg" hidden></div>
-  </section>
-
-  <section>
-    <div class="lab"><span id="kLab">Hauteur du kicker</span><output id="kOut">0,46 m</output></div>
-    <input type="range" id="kicker" min="0.2" max="1" step="0.01" value="0.46" aria-labelledby="kLab">
-    <p class="hint" id="kHint"></p>
-  </section>
-
-  <section>
-    <h2>Blocs</h2>
-    <input type="search" id="q" placeholder="Nom, cotation, ouvreur…" aria-label="Rechercher un bloc">
-    <label class="check" style="margin-top:6px"><input type="checkbox" id="dim" checked> Atténuer les autres prises</label>
-    <label class="check"><input type="checkbox" id="byType"> Colorer les prises par type</label>
-    <div class="legend" id="typeLegend" hidden style="margin:4px 0 2px"></div>
-    <div id="list" role="list"></div>
-    <div class="legend" style="margin-top:12px">
-      <span><i style="background:#22c55e"></i>Départ</span>
-      <span><i style="background:#06b6d4"></i>Main</span>
-      <span><i style="background:#d946ef"></i>Top</span>
-      <span><i style="background:#f59e0b"></i>Pied</span>
+  <!-- 1 · Ma board : le contexte, réglé une fois puis mémorisé -->
+  <section class="zone" aria-labelledby="zBoard">
+    <h2 class="zlab" id="zBoard">Ma board</h2>
+    <div class="boardcard">
+      <button type="button" class="boardsum" id="boardSum" aria-expanded="false" aria-controls="boardEdit">
+        <span class="bname" id="bName">Chargement…</span>
+        <span class="bmeta" id="bMeta"></span>
+        <span class="bedit">Modifier</span>
+      </button>
+      <div class="boardedit" id="boardEdit" hidden>
+        <label for="board">Modèle</label>
+        <select id="board"></select>
+        <p class="hint" id="boardNote"></p>
+        <div class="lab" style="margin-top:10px"><span id="kLab">Hauteur du kicker</span><output id="kOut">0,46 m</output></div>
+        <input type="range" id="kicker" min="0.2" max="1" step="0.01" value="0.46" aria-labelledby="kLab">
+        <p class="hint" id="kHint"></p>
+        <label for="finish" style="margin-top:10px">Finition du panneau</label>
+        <select id="finish">
+          <option value="noir">Peinture noire</option>
+          <option value="bois">Contreplaqué brut</option>
+          <option value="blanc">Peinture blanche</option>
+        </select>
+      </div>
+      <div class="anglerow">
+        <div class="lab"><span id="angleLab">Angle</span><output id="angleOut">40°</output></div>
+        <input type="range" id="angle" min="0" max="70" step="5" value="40" aria-labelledby="angleLab">
+        <div class="seg" id="angleSeg" hidden></div>
+        <p class="hint">Cotations, répétitions et filtres suivent l'angle choisi.</p>
+      </div>
     </div>
   </section>
 
-  <section>
-    <h2>Données</h2>
-    <p class="note" id="dataInfo">Chargement…</p>
-    <p id="msg" role="status"></p>
-    <details>
-      <summary>Importer un fichier personnalisé</summary>
-      <p class="note">Fichier JSON produit par <code>scripts/build_board_data.py --out fichier.json</code>, ou au format ci-dessous. Les boards déjà connues gardent leur géométrie réelle si le fichier n'a pas les contours des prises.</p>
-      <input class="file" type="file" id="file" accept=".json,application/json" aria-label="Importer un fichier JSON" style="margin:10px 0">
-<pre>{
-  "format": 2,
-  "boards": [{
-    "id": "kilter-original", "name": "…",
-    "width": 3.658, "panel": 3.658,
-    "kicker": [0.46, 0.46, 0.91],
-    "angles": {"min": 0, "max": 70, "step": 5, "def": 40},
-    "holes": [[id, x, y, teinte, type, orientation, pied], …],
-    "outlines": {"id": [x0, y0, x1, y1, …]}
-  }],
-  "climbs": [{
-    "id": "…", "board": "kilter-original", "name": "…",
-    "setter": "…", "grade": "6b/V4", "angle": 40,
-    "stats": [[angle, cotation, répétitions, qualité]],
-    "holds": [[id, "start"|"hand"|"finish"|"foot"], …]
-  }]
-}</pre>
-      <p class="note">Mètres. x depuis le bord gauche ; y le long du panneau depuis la charnière (négatif = sur le kicker). Contours relatifs au boulon de la prise.</p>
+  <!-- 2 · Trouver un bloc : la tâche principale -->
+  <section class="zone grow" aria-labelledby="zFind">
+    <h2 class="zlab" id="zFind">Trouver un bloc</h2>
+    <input type="search" id="q" placeholder="Nom du bloc ou ouvreur" aria-label="Rechercher par nom ou ouvreur">
+    <div class="frow">
+      <span class="flab" id="gLab">Cotation <small class="hint">(Font)</small></span>
+      <select id="gmin" aria-label="Cotation minimale"></select>
+      <span class="fsep">à</span>
+      <select id="gmax" aria-label="Cotation maximale"></select>
+    </div>
+    <div class="chips" role="group" aria-label="Filtres rapides">
+      <button type="button" class="chip" id="fBench" aria-pressed="false">Benchmarks</button>
+    </div>
+    <div class="chips" id="fTypes" role="group" aria-label="Type de prises dominant"></div>
+    <details class="more" id="moreBox">
+      <summary>Plus de filtres <span id="moreCount"></span></summary>
+      <div class="frow"><label class="flab" for="fAsc">Répétitions</label>
+        <select id="fAsc"><option value="0">Toutes</option><option value="10">10 et plus</option><option value="50">50 et plus</option><option value="100">100 et plus</option><option value="500">500 et plus</option><option value="1000">1 000 et plus</option></select></div>
+      <div class="frow"><label class="flab" for="fQ">Note</label>
+        <select id="fQ"><option value="0">Toutes</option><option value="3">3 et plus</option><option value="4">4 et plus</option><option value="4.5">4,5 et plus</option></select></div>
+      <label class="check"><input type="checkbox" id="fFav"> Mes favoris uniquement</label>
+      <label class="check"><input type="checkbox" id="fUnclimbed"> Inclure les blocs jamais faits à cet angle</label>
     </details>
+    <div class="rhead">
+      <span id="count" role="status">—</span>
+      <button type="button" class="linkbtn" id="fReset" hidden>Réinitialiser</button>
+      <label class="sr-only" for="sort">Trier</label>
+      <select id="sort" class="sort"></select>
+    </div>
+    <div id="list" role="list"></div>
+    <button type="button" class="more-btn" id="moreRes" hidden>Afficher plus</button>
   </section>
 
-  <p class="note">Clic sur une prise : hauteur depuis le tapis et distance à la prise précédente. Glisser pour tourner, molette ou pincement pour zoomer. Géométrie et contours : <a href="https://github.com/boardsesh/boardsesh">Boardsesh</a> (Apache-2.0). Blocs : snapshots publics Boardsesh, créés par les ouvreurs crédités. Types de prises : <a href="https://github.com/CruxCoach/CruxCoach">CruxCoach</a> (CC BY 4.0), étiquettes en cours de validation par leur projet.</p>
+  <!-- 3 · À propos : données, crédits, import -->
+  <details class="zone about">
+    <summary>À propos et données</summary>
+    <p class="note" id="dataInfo">Chargement…</p>
+    <p id="msg" role="status"></p>
+    <p class="note">Clic sur une prise : hauteur depuis le tapis et distance à la prise précédente. Glisser pour tourner, molette ou pincement pour zoomer.</p>
+    <p class="note">Géométrie et contours : <a href="https://github.com/boardsesh/boardsesh">Boardsesh</a> (Apache-2.0). Blocs : snapshots publics Boardsesh, créés par les ouvreurs crédités. Types de prises : <a href="https://github.com/CruxCoach/CruxCoach">CruxCoach</a> (CC BY 4.0), étiquettes en cours de validation par leur projet.</p>
+    <details>
+      <summary>Importer un fichier personnalisé</summary>
+      <p class="note">Fichier JSON produit par <code>scripts/build_board_data.py --out fichier.json</code>. Les boards déjà connues gardent leur géométrie réelle si le fichier n'a pas les contours des prises.</p>
+      <input class="file" type="file" id="file" accept=".json,application/json" aria-label="Importer un fichier JSON" style="margin:10px 0">
+    </details>
+  </details>
 </aside>
 
 <main>
   <div id="host"></div>
   <div class="hud">
-    <div class="card" id="readout">
-      <h3 id="rTitle">Chargement…</h3>
-      <p id="rSub"></p>
+    <div class="card dimscard">
       <div class="dims">
         <div><strong id="dTop">—</strong>sommet / tapis</div>
         <div><strong id="dOver">—</strong>dévers</div>
         <div><strong id="dSize">—</strong>panneau</div>
       </div>
     </div>
-    <div class="views" role="group" aria-label="Vue">
-      <button type="button" data-view="face" aria-pressed="true">Face</button>
-      <button type="button" data-view="side" aria-pressed="false">Profil</button>
-      <button type="button" data-view="climber" aria-pressed="false">Grimpeur</button>
+    <!-- 4 · Affichage : réglages de la scène, sur la scène -->
+    <div class="toolbar">
+      <div class="views" role="group" aria-label="Vue">
+        <button type="button" data-view="face" aria-pressed="true">Face</button>
+        <button type="button" data-view="side" aria-pressed="false">Profil</button>
+        <button type="button" data-view="climber" aria-pressed="false">Grimpeur</button>
+      </div>
+      <div class="views" role="group" aria-label="Affichage des prises">
+        <button type="button" id="tDim" aria-pressed="true">Atténuer les autres</button>
+        <button type="button" id="tType" aria-pressed="false">Couleur par type</button>
+      </div>
+      <div class="card legendcard" id="typeLegend" hidden></div>
+    </div>
+  </div>
+  <div class="card fiche" id="fiche" hidden>
+    <div class="ftop">
+      <h3 id="fName"></h3>
+      <span class="fgrade" id="fGrade"></span>
+    </div>
+    <p class="fmeta" id="fMeta"></p>
+    <div class="ftypes" id="fTypesOut"></div>
+    <div class="fangles" id="fAngles" role="group" aria-label="Cotation selon l'angle"></div>
+    <div class="factions">
+      <button type="button" id="aShare">Copier le lien</button>
+      <button type="button" id="aFav" aria-pressed="false">Ajouter aux favoris</button>
+      <span class="froles"><i style="background:#22c55e"></i>départ <i style="background:#06b6d4"></i>main <i style="background:#d946ef"></i>top <i style="background:#f59e0b"></i>pied</span>
     </div>
   </div>
   <div id="info"></div>

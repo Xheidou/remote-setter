@@ -358,12 +358,17 @@ def load_climbs(db, key, cfg, known, limit, min_ascents):
     sc = cols(con, "board_climb_stats")
     diff = next((c for c in ("display_difficulty", "difficulty_average") if c in sc), None)
     q = "quality_average" if "quality_average" in sc else "NULL"
-    for r in con.execute(f"SELECT climb_uuid, angle, {diff or 'NULL'} AS d, "
+    bm = "benchmark_difficulty" if "benchmark_difficulty" in sc else "NULL"
+    # stats par angle : [angle, cotation, répétitions, note /5, difficulté (échelle Aurora), benchmark 0/1]
+    # un benchmark (Kilter : « vérifié ») garde la cotation désignée par la communauté
+    for r in con.execute(f"SELECT climb_uuid, angle, {diff or 'NULL'} AS d, {bm} AS b, "
                          f"COALESCE(ascensionist_count, 0) AS a, {q} AS q FROM board_climb_stats"):
-        if r["climb_uuid"] in climbs and r["a"] >= min_ascents:
-            g = GRADES.get(int(round(r["d"]))) if r["d"] is not None else None
+        if r["climb_uuid"] in climbs and (r["a"] >= min_ascents or r["b"] is not None):
+            d = r["b"] if r["b"] is not None else r["d"]
+            g = GRADES.get(int(round(d))) if d is not None else None
             stats.setdefault(r["climb_uuid"], []).append(
-                [r["angle"], g or "", r["a"], round(r["q"], 1) if r["q"] is not None else None])
+                [r["angle"], g or "", r["a"], round(r["q"], 1) if r["q"] is not None else None,
+                 round(d, 1) if d is not None else None, 1 if r["b"] is not None else 0])
 
     roles = ROLE_CODES.get(cfg["board"], ROLE_CODES["kilter"])
     out, skipped = [], 0
@@ -387,7 +392,8 @@ def load_climbs(db, key, cfg, known, limit, min_ascents):
         out.append({"id": uid, "board": key, "name": c.get("name") or "Sans nom",
                     "setter": c.get("setter_username") or "", "grade": st[0][1], "angle": st[0][0],
                     "ascents": sum(s[2] for s in st), "stats": sorted(st, key=lambda s: s[0]), "holds": holds})
-    out.sort(key=lambda x: -x["ascents"])
+    # même ordre que le tri « recommandés » du site : répétitions pondérées par la note
+    out.sort(key=lambda x: -sum(s[2] * ((s[3] if s[3] is not None else 3) / 5) for s in x["stats"]))
     if skipped:
         log(f"  {skipped} blocs ignorés (prises hors de cette taille de board)")
     return out[:limit] if limit else out

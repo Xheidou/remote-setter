@@ -48,10 +48,10 @@ Valeur : ★ utile · ★★ important · ★★★ ce qui distingue le projet.
 
 | Chantier | Détail | Effort | Valeur | Phase |
 |---|---|---|---|---|
-| Filtres | Plage de cotation, angle, nombre de répétitions, qualité, ouvreur, bloc « vérifié » / benchmark | M | ★★★ | 2 |
-| Tri | Popularité, qualité, cotation, nouveauté | S | ★★ | 2 |
-| Liens partageables | `#board/bloc/angle` : ouvrir directement un bloc à un angle donné | S | ★★★ | 2 |
-| Favoris et historique | Gardés dans le navigateur ; listes personnelles (« projets ») | M | ★★ | 2 |
+| ~~Refonte du panneau et filtres~~ ✅ | Ma board (mémorisée) / Trouver un bloc / fiche ; cotation, vérifiés-benchmarks, type de prise dominant, répétitions, note, favoris | M | ★★★ | 2 |
+| ~~Tri~~ ✅ | Recommandés (répétitions × note), répétitions, note, cotation ; reste : nouveauté | S | ★★ | 2 |
+| ~~Liens partageables~~ ✅ | `#board/bloc/angle` : ouvrir directement un bloc à un angle donné | S | ★★★ | 2 |
+| Favoris et historique | ✅ favoris (navigateur) ; reste : historique, listes personnelles (« projets ») | M | ★★ | 2 |
 | Recherche par prises | Cliquer des prises sur la board pour trouver les blocs qui les utilisent | M | ★★ | 3 |
 | Cotation selon l'angle | Déjà en place ; ajouter une courbe cotation / angle par bloc | S | ★ | 2 |
 

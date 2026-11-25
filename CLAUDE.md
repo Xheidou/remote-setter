@@ -15,6 +15,7 @@ npm run build        # dist/
 ## Architecture
 
 - `src/main.js` : scène, construction de la board (panneau, kicker, châssis, vérins), sélection board/bloc, vues, mesure au clic, import.
+- `src/ui/filters.js` : logique de recherche sans DOM — statistiques d'un bloc à un angle (`view`), profil des prises de main et type dominant (`holdProfile`), filtres, tris (`rec` = répétitions × note/5). Testable dans Node.
 - `src/data.js` : manifeste `data/index.json`, chargement à la demande de `boards/<id>.json` et `climbs/<id>.json`, import d'un fichier perso (une board connue garde sa géométrie si le fichier a moins de contours), blocs d'exemple si pas de blocs.
 - `src/holds/geometry.js` : modelage des prises. Anneaux du contour vers le **boulon** (origine du contour) ; flancs droits, dessus bombé ; réglette/bac : face inférieure creusée → pointe à arête vive (sommets doublés) → nez arrondi, lèvre qui déborde (`lip`) ; plat : flancs arrondis ; trou (pocket) : cuvette (`surfZ`) ; vrai trou de vis creusé (fraisure + puits, groupe de matériau 1). Repli en dalle si contour trop concave.
 - `src/config.js` : rôles (départ/main/top/pied), `TYPES` (hauteurs `H`, `kind`, `fw` largeur des flancs, `lip` débord), orientations.
@@ -29,16 +30,27 @@ npm run build        # dist/
 - Versions figées dans le script : `BOARDSESH_REF` (commit `b3a0285`, géométrie et contours) et `TYPES_REF` (CruxCoach `a9fc009`). Seuls les blocs (snapshots) changent chaque nuit. Three.js figé à 0.147.0 ; `package-lock.json` à committer après le premier `npm install`.
 - Approximations : kicker Tension estimé ; positions MoonBoard reconstruites sur grille ; relief des prises = forme type par catégorie.
 
+## Interface (architecture d'information)
+
+1. **Ma board** (contexte, mémorisé dans `localStorage` `board3d:prefs`) : résumé + « Modifier » (modèle, kicker, finition) ; l'**angle** reste visible et pilote cotations, répétitions et filtres.
+2. **Trouver un bloc** : recherche nom/ouvreur, cotation (Font), « Vérifiés » (Kilter) / « Benchmarks », type de prise dominant (filtre + badges dans la liste), « Plus de filtres » (répétitions, note, favoris, blocs jamais faits à cet angle), tri « Recommandés » par défaut, pagination par 60.
+3. **Fiche du bloc** sur la scène (sous la scène sur téléphone) : cotation à l'angle, cotations par angle cliquables, profil des prises, copier le lien, favori.
+4. **Affichage** dans la barre d'outils de la scène : vues, atténuer, couleur par type.
+- Liens partageables : `#<board>/<id du bloc>/<angle>`.
+
 ## Décisions déjà prises (ne pas revenir dessus sans demander)
 
 - Pas de grimpeur/mannequin dans la scène (supprimé à la demande).
+- L'angle est un réglage de la board, pas un filtre ; les filtres s'appliquent aux statistiques à cet angle.
+- Tri naturel : répétitions pondérées par la note ; benchmarks/vérifiés et cotation en filtres principaux.
+- Analyse des mouvements : en dernier dans la feuille de route.
 - Prises Kilter blanc cassé ; panneau noir par défaut (finitions bois / blanc en option).
 - La partie qui crochète d'une réglette ou d'un bac est le **bord extérieur** (lèvre qui déborde), jamais un creux dans la prise.
 
 ## Pistes suivantes
 
 1. Regrouper les maillages des prises (perf mobile) ; contrôles de génération.
-2. Blocs : filtres (cotation, angle, répétitions, qualité, ouvreur), tri, fichiers découpés, liens partageables `#board/bloc/angle`, favoris.
+2. Blocs : fichiers découpés (gros catalogues), recherche par prises ; variante d'un bloc existant (éditeur pré-rempli depuis la fiche).
 3. Allumer la board en Bluetooth (comme Boardsesh), éditeur de blocs, analyse des distances entre prises, réalité augmentée.
 4. Avant diffusion publique : contacter Boardsesh et CruxCoach, vérifier les droits sur les contours et les marques.
 

@@ -5,6 +5,7 @@ import {ROLES, TYPES, DIRS, fmt, nf} from './config.js';
 import {holdGeometry, ringGeometry} from './holds/geometry.js';
 import {MAT, EYE, ROOM, buildRoom, finishTex, textSprite, matArea, steel, steelLight} from './scene/room.js';
 import {store, loadManifest, loadBoard, loadClimbs, climbsOf, boardList, importData} from './data.js';
+import {GRADES, GMIN, GMAX, TYPE_ORDER, view, holdProfile, filterClimbs, defaultFilters, activeCount, SORTS} from './ui/filters.js';
 
 const $ = id => document.getElementById(id);
 const host = $('host');
@@ -35,7 +36,21 @@ scene.add(sun);
 const fill = new THREE.DirectionalLight(0xe6eeff, 0.3); fill.position.set(-5, 4, 6); scene.add(fill);
 
 /* ---------- État ---------- */
-const state = {finish: 'noir', board: null, climb: null, angle: 40, kicker: 0.46, view: 'face', q: '', dim: true, byType: false};
+/* Préférences mémorisées dans le navigateur : board, angle et kicker par board, finition, affichage, favoris */
+const PREFS_KEY = 'board3d:prefs';
+const prefs = (() => { try { return JSON.parse(localStorage.getItem(PREFS_KEY)) || {}; } catch { return {}; } })();
+prefs.boards = prefs.boards || {};
+const favs = new Set(Array.isArray(prefs.favs) ? prefs.favs : []);
+let saveTimer = null;
+function savePrefs() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { try { prefs.favs = [...favs]; localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch { /* stockage indisponible */ } }, 250);
+}
+const boardPrefs = id => (prefs.boards[id] = prefs.boards[id] || {});
+
+const state = {finish: prefs.finish || 'noir', board: null, climb: null, angle: 40, kicker: 0.46, view: 'face',
+  dim: prefs.dim !== false, byType: !!prefs.byType};
+const F = defaultFilters();
 let boardG = null, panelG = null, kickerG = null, kickBox = null, ruler = null, struts = [];
 let holds = new Map(), holdMeshes = [], litG = [], measureLine = null, lastPick = null;
 
@@ -129,6 +144,7 @@ function setKicker(K) {
   kickerG.position.y = top; panelG.position.y = top;
   kickBox.scale.y = top; kickBox.position.set(0, -top / 2, -0.02);
   updateStruts();
+  if (state.board) { boardPrefs(state.board.id).kicker = K; savePrefs(); renderBoardSummary(); }
   $('kOut').textContent = fmt(K) + ' m';
   updateDims(); clearMeasure();
 }
@@ -180,6 +196,7 @@ function updateDims() {
   const b = state.board, r = THREE.MathUtils.degToRad(state.angle);
   $('dTop').textContent = fmt(state.kicker + b.panel * Math.cos(r)) + ' m';
   $('dOver').textContent = fmt(b.panel * Math.sin(r)) + ' m';
+  $('dSize').textContent = fmt(b.width, 2) + ' × ' + fmt(b.panel, 2) + ' m';
 }
 function clearMeasure() {
   if (measureLine) { scene.remove(measureLine); measureLine = null; }
@@ -203,7 +220,9 @@ function setAngle(a) {
   panelG.rotation.x = THREE.MathUtils.degToRad(a);
   updateStruts();
   $('angleOut').textContent = a + '°';
-  updateDims(); clearMeasure(); updateReadout();
+  updateDims(); clearMeasure();
+  boardPrefs(state.board.id).angle = a; savePrefs();
+  scheduleResults(); renderFiche(); updateHash();
 }
 function angleUI(b) {
   const A = b.angles, seg = $('angleSeg'), rng = $('angle');
@@ -221,83 +240,178 @@ function angleUI(b) {
 function applyAngle(a) {
   const A = state.board.angles;
   if (A.list) a = A.list.reduce((p, c) => Math.abs(c - a) < Math.abs(p - a) ? c : p);
-  else a = Math.min(A.max, Math.max(A.min, a));
+  else a = Math.min(A.max, Math.max(A.min, Math.round(a / (A.step || 5)) * (A.step || 5)));
   $('angle').value = a;
   for (const bt of $('angleSeg').children) bt.setAttribute('aria-pressed', String(+bt.dataset.a === a));
   setAngle(a);
 }
-function kickerUI(b) {
+function kickerUI(b, K) {
   const [d, mn, mx] = b.kicker, r = $('kicker');
-  r.min = mn; r.max = mx; r.value = d; r.disabled = mn === mx;
+  const k = K == null ? d : Math.min(mx, Math.max(mn, K));
+  r.min = mn; r.max = mx; r.value = k; r.disabled = mn === mx;
   $('kHint').textContent = mn === mx ? 'Hauteur standard fixe pour cette board.' : `Varie selon l'installation : ${fmt(mn)} à ${fmt(mx)} m.`;
-  setKicker(d);
+  setKicker(k);
 }
 
-/* ---------- Liste des blocs ---------- */
-function statAt(c, a) { return c.stats ? c.stats.find(s => s[0] === a) : null; }
-function renderList() {
-  const list = $('list'); list.textContent = '';
-  const q = state.q.trim().toLowerCase();
-  const items = climbsOf(state.board.id).filter(c => !q || [c.name, c.grade, c.setter].join(' ').toLowerCase().includes(q));
-  if (!items.length) { const p = document.createElement('p'); p.className = 'empty'; p.textContent = q ? 'Aucun bloc pour cette recherche.' : 'Aucun bloc pour cette board.'; list.appendChild(p); return; }
-  for (const c of items.slice(0, 300)) {
-    const bt = document.createElement('button'); bt.type = 'button'; bt.setAttribute('role', 'listitem');
-    bt.setAttribute('aria-current', String(state.climb === c));
-    const n = document.createElement('b'); n.textContent = c.name;
-    const s = document.createElement('span');
-    s.textContent = [c.grade, c.angle != null ? c.angle + '°' : '', c.ascents ? nf.format(c.ascents) + ' répét.' : '', c.setter, c.sample ? 'exemple' : ''].filter(Boolean).join(' · ');
-    bt.append(n, s); bt.addEventListener('click', () => selectClimb(c)); list.appendChild(bt);
+/* ---------- Ma board : résumé ---------- */
+const FINISH = {noir: 'panneau noir', bois: 'contreplaqué', blanc: 'panneau blanc'};
+function renderBoardSummary() {
+  const b = state.board; if (!b) return;
+  $('bName').textContent = b.name;
+  $('bMeta').textContent = `kicker ${fmt(state.kicker)} m · ${FINISH[state.finish] || ''}`;
+}
+function toggleBoardEdit(open) {
+  const bt = $('boardSum'), box = $('boardEdit');
+  const o = open == null ? box.hidden : open;
+  box.hidden = !o; bt.setAttribute('aria-expanded', String(o));
+}
+
+/* ---------- Trouver un bloc : filtres, tri, liste ---------- */
+const typeOf = id => { const h = holds.get(id); return h ? h.type : ''; };
+const benchWord = () => state.board && state.board.maker === 'Kilter' ? ['Vérifiés', 'vérifié'] : ['Benchmarks', 'benchmark'];
+const shortGrade = g => (g || '').replace('/', ' · ');
+const dotColor = t => '#' + TYPES[t].color.toString(16).padStart(6, '0');
+const capital = w => w.charAt(0).toUpperCase() + w.slice(1);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+function typeBadges(prof, max) {
+  return Object.entries(prof.counts).sort((a, b) => b[1] - a[1]).slice(0, max).map(([t, n]) => {
+    const b = el('span', 'tbadge'), i = el('i'); i.style.background = dotColor(t);
+    b.append(i, `${n} ${n > 1 ? TYPES[t].plural : TYPES[t].label}`); return b;
+  });
+}
+
+function buildFilterUI() {
+  const opt = (sel, d, f, v) => { const o = el('option', null, f); o.value = d; o.title = `${f} (${v})`; sel.appendChild(o); };
+  for (const [d, f, v] of GRADES) { opt($('gmin'), d, f, v); opt($('gmax'), d, f, v); }
+  $('gmin').value = GMIN; $('gmax').value = GMAX;
+  for (const [k, s] of Object.entries(SORTS)) { const o = el('option', null, s.label); o.value = k; $('sort').appendChild(o); }
+  const box = $('fTypes');
+  for (const t of TYPE_ORDER.filter(t => !['volume', 'foot_chip'].includes(t))) {
+    const b = el('button', 'chip'); b.type = 'button'; b.dataset.t = t; b.setAttribute('aria-pressed', 'false');
+    b.title = `Blocs où les ${TYPES[t].plural} dominent`;
+    const i = el('i'); i.style.background = dotColor(t); b.append(i, capital(TYPES[t].plural)); box.appendChild(b);
   }
-  if (items.length > 300) { const p = document.createElement('p'); p.className = 'empty'; p.textContent = `300 premiers sur ${nf.format(items.length)} — affinez la recherche.`; list.appendChild(p); }
+}
+function syncFilterUI() {
+  $('fBench').textContent = benchWord()[0];
+  $('fBench').setAttribute('aria-pressed', String(F.bench));
+  for (const b of $('fTypes').children) b.setAttribute('aria-pressed', String(F.types.has(b.dataset.t)));
+  const more = (F.minAsc > 0) + (F.minQ > 0) + F.favOnly + F.unclimbed;
+  $('moreCount').textContent = more ? `(${more})` : '';
+  $('fReset').hidden = !(activeCount(F) || F.q.trim());
 }
 
-function updateReadout() {
-  const b = state.board, c = state.climb; if (!b) return;
-  $('rTitle').textContent = c ? c.name : b.name;
-  let sub;
-  if (c) {
-    const st = statAt(c, state.angle);
-    const g = st ? `${st[1] || '?'} à ${state.angle}° (${nf.format(st[2])} répét.)` : (c.stats ? `pas de stats à ${state.angle}° · ${c.grade} à ${c.angle}°` : [c.grade, c.angle != null ? c.angle + '°' : ''].filter(Boolean).join(' · '));
-    sub = [g, c.setter ? 'par ' + c.setter : '', b.name, c.sample ? 'exemple' : ''].filter(Boolean).join(' · ');
-    const cnt = {};
-    for (const [id, r] of c.holds) { const h = holds.get(id); if (h && TYPES[h.type] && r !== 'foot') cnt[h.type] = (cnt[h.type] || 0) + 1; }
-    const parts = Object.entries(cnt).sort((a, b) => b[1] - a[1]).map(([t, n]) => n + ' ' + (n > 1 ? TYPES[t].plural : TYPES[t].label));
-    if (parts.length) sub += ' — mains : ' + parts.join(', ');
-  } else sub = `${b.holes.length} prises`;
-  $('rSub').textContent = sub;
-  $('dSize').textContent = fmt(b.width, 2) + ' × ' + fmt(b.panel, 2) + ' m';
+const PAGE = 60;
+let results = [], shown = 0, resultsRaf = 0;
+function scheduleResults() { cancelAnimationFrame(resultsRaf); resultsRaf = requestAnimationFrame(computeResults); }
+function computeResults() {
+  if (!state.board) return;
+  results = filterClimbs(climbsOf(state.board.id), state.angle, F, typeOf, favs);
+  shown = 0; $('list').textContent = '';
+  $('count').textContent = `${nf.format(results.length)} bloc${results.length > 1 ? 's' : ''} à ${state.angle}°`;
+  syncFilterUI();
+  if (!results.length) {
+    const p = el('p', 'empty', activeCount(F) || F.q.trim() ? 'Aucun bloc ne correspond. Élargissez la cotation ou retirez un filtre.' : `Aucun bloc grimpé à ${state.angle}° sur cette board.`);
+    $('list').appendChild(p); $('moreRes').hidden = true; return;
+  }
+  renderMore();
+}
+function renderMore() {
+  const frag = document.createDocumentFragment(), [, bw] = benchWord();
+  for (const {c, v} of results.slice(shown, shown + PAGE)) {
+    const row = el('button', 'row'); row.type = 'button'; row.setAttribute('role', 'listitem'); row.dataset.id = c.id;
+    row.setAttribute('aria-current', String(state.climb === c));
+    const name = el('span', 'rname', c.name);
+    if (v.bench) name.append(el('span', 'bench', bw));
+    if (favs.has(c.id)) name.append(el('span', 'fav', '♥'));
+    const grade = el('span', 'rgrade', v.here ? shortGrade(v.grade) : '—');
+    const meta = el('span', 'rmeta', [v.here ? `${nf.format(v.asc)} répét.` : `jamais fait à ${state.angle}°`,
+      v.q != null ? `★ ${fmt(v.q, 1)}` : '', c.setter, c.sample ? 'exemple' : ''].filter(Boolean).join(' · '));
+    const badges = el('span', 'rbadges'); badges.append(...typeBadges(holdProfile(c, typeOf), 3));
+    row.append(name, grade, meta, badges);
+    row.addEventListener('click', () => selectClimb(c));
+    frag.appendChild(row);
+  }
+  shown += PAGE; $('list').appendChild(frag);
+  $('moreRes').hidden = shown >= results.length;
+  if (!$('moreRes').hidden) $('moreRes').textContent = `Afficher plus (${nf.format(results.length - shown)} restants)`;
+}
+function markCurrent() {
+  for (const r of $('list').children) if (r.dataset.id) r.setAttribute('aria-current', String(!!state.climb && r.dataset.id === state.climb.id));
+}
+
+/* ---------- Fiche du bloc ---------- */
+function renderFiche() {
+  const c = state.climb, box = $('fiche');
+  if (!c || !state.board) { box.hidden = true; return; }
+  box.hidden = false;
+  const v = view(c, state.angle), [, bw] = benchWord();
+  $('fName').textContent = c.name;
+  const g = $('fGrade'); g.textContent = v.here ? `${shortGrade(v.grade)} à ${state.angle}°` : `pas fait à ${state.angle}°`;
+  if (v.bench) g.append(el('span', 'bench', bw));
+  $('fMeta').textContent = [c.setter ? `par ${c.setter}` : '', v.here && v.asc ? `${nf.format(v.asc)} répétitions` : '',
+    v.q != null ? `★ ${fmt(v.q, 1)} / 5` : '', c.sample ? 'bloc d\'exemple' : ''].filter(Boolean).join(' · ');
+  const t = $('fTypesOut'); t.textContent = '';
+  const prof = holdProfile(c, typeOf);
+  if (Object.keys(prof.counts).length) { t.append(el('span', 'rmeta', 'Mains :'), ...typeBadges(prof, 6)); }
+  const an = $('fAngles'); an.textContent = '';
+  for (const s of (c.stats || []).slice().sort((a, b) => a[0] - b[0])) {
+    const b = el('button'); b.type = 'button'; b.setAttribute('aria-pressed', String(s[0] === state.angle));
+    b.append(`${s[0]}°`, el('small', null, (s[1] || '').split('/')[0]));
+    b.title = `${s[1]} à ${s[0]}° · ${nf.format(s[2])} répétitions`;
+    b.addEventListener('click', () => applyAngle(s[0])); an.appendChild(b);
+  }
+  an.hidden = !an.children.length;
+  const fav = favs.has(c.id);
+  $('aFav').setAttribute('aria-pressed', String(fav)); $('aFav').textContent = fav ? '♥ Dans vos favoris' : '♡ Ajouter aux favoris';
+}
+
+/* ---------- Liens partageables : #board/bloc/angle ---------- */
+function updateHash() {
+  if (!state.board) return;
+  const h = '#' + [state.board.id, state.climb ? encodeURIComponent(state.climb.id) : '', state.angle].join('/');
+  if (location.hash !== h) history.replaceState(null, '', h);
+}
+function parseHash() {
+  const [b, c, a] = location.hash.replace(/^#\/?/, '').split('/');
+  return {board: b || null, climb: c ? decodeURIComponent(c) : null, angle: a && !isNaN(+a) ? +a : null};
 }
 
 function selectClimb(c) {
-  state.climb = c; paintClimb();
-  if (c && c.angle != null) applyAngle(c.angle);
-  renderList(); updateReadout();
+  state.climb = c; paintClimb(); renderFiche(); markCurrent(); updateHash();
 }
 
 // Chargement à la demande de la géométrie et des blocs ; une sélection plus récente annule la précédente
 let selectSeq = 0;
-async function selectBoard(id) {
+async function selectBoard(id, want = {}) {
   const seq = ++selectSeq;
   $('board').value = id;
-  $('rTitle').textContent = 'Chargement…'; $('rSub').textContent = '';
+  $('bName').textContent = 'Chargement…'; $('count').textContent = '—';
   let b, list;
   try { b = await loadBoard(id); list = await loadClimbs(id); }
-  catch (err) { if (seq === selectSeq) { $('rTitle').textContent = 'Board indisponible'; $('rSub').textContent = err.message; } return; }
+  catch (err) { if (seq === selectSeq) { $('bName').textContent = 'Board indisponible'; $('bMeta').textContent = err.message; } return; }
   if (seq !== selectSeq) return;
-  state.board = b;
+  if (list._profFor !== b) { for (const c of list) delete c._prof; list._profFor = b; }
+  state.board = b; state.climb = null;
+  prefs.board = id; savePrefs();
   $('boardNote').textContent = [b.note, b.approx].filter(Boolean).join(' · ');
-  buildBoard(b); angleUI(b); kickerUI(b);
-  state.climb = list[0] || null; paintClimb();
-  applyAngle(state.climb && state.climb.angle != null ? state.climb.angle : b.angles.def);
-  renderList(); updateReadout(); goView(state.view, true);
+  buildBoard(b); angleUI(b);
+  const bp = boardPrefs(id);
+  kickerUI(b, bp.kicker);
+  renderBoardSummary();
+  applyAngle(want.angle ?? bp.angle ?? b.angles.def);
+  computeResults();
+  const target = (want.climb && list.find(c => c.id === want.climb)) || (results[0] && results[0].c) || null;
+  selectClimb(target);
+  goView(state.view, true);
 }
 
 function renderDataInfo() {
-  const m = store.manifest, el = $('dataInfo');
-  if (!m) { el.textContent = 'Aucune donnée générée : board approximative et blocs d\'exemple.'; return; }
+  const m = store.manifest, el2 = $('dataInfo');
+  if (!m) { el2.textContent = 'Aucune donnée générée : board approximative et blocs d\'exemple.'; return; }
   const d = m.generated ? new Date(m.generated) : null;
   const n = boardList().reduce((a, b) => a + (b.climbCount || 0), 0);
-  el.textContent = `${boardList().length} boards, ${nf.format(n)} blocs` + (d && !isNaN(d) ? `, données du ${d.toLocaleDateString('fr-FR')}` : '') + '.';
+  el2.textContent = `${boardList().length} boards, ${nf.format(n)} blocs` + (d && !isNaN(d) ? `, données du ${d.toLocaleDateString('fr-FR')}` : '') + '.';
 }
 
 function renderBoards() {
@@ -386,27 +500,79 @@ $('file').addEventListener('change', async e => {
 });
 
 /* ---------- Événements ---------- */
+$('boardSum').addEventListener('click', () => toggleBoardEdit());
 $('board').addEventListener('change', e => selectBoard(e.target.value));
 $('finish').addEventListener('change', e => {
-  state.finish = e.target.value;
+  state.finish = e.target.value; prefs.finish = state.finish; savePrefs();
   const keepClimb = state.climb, keepAngle = state.angle, keepK = state.kicker;
-  buildBoard(state.board); setKicker(keepK); state.climb = keepClimb; paintClimb(); applyAngle(keepAngle);
+  buildBoard(state.board); setKicker(keepK); state.climb = keepClimb; paintClimb(); applyAngle(keepAngle); renderBoardSummary();
 });
 $('angle').addEventListener('input', e => setAngle(+e.target.value));
 $('angleSeg').addEventListener('click', e => { const bt = e.target.closest('button'); if (bt) applyAngle(+bt.dataset.a); });
 $('kicker').addEventListener('input', e => setKicker(+e.target.value));
-$('dim').addEventListener('change', e => { state.dim = e.target.checked; paintClimb(); });
-$('byType').addEventListener('change', e => { state.byType = e.target.checked; $('typeLegend').hidden = !state.byType; paintClimb(); });
+
+let qTimer = null;
+$('q').addEventListener('input', e => { clearTimeout(qTimer); qTimer = setTimeout(() => { F.q = e.target.value; computeResults(); }, 150); });
+const gradeChange = which => {
+  let lo = +$('gmin').value, hi = +$('gmax').value;
+  if (lo > hi) { if (which === 'min') hi = lo; else lo = hi; $('gmin').value = lo; $('gmax').value = hi; }
+  F.gmin = lo; F.gmax = hi; computeResults();
+};
+$('gmin').addEventListener('change', () => gradeChange('min'));
+$('gmax').addEventListener('change', () => gradeChange('max'));
+$('fBench').addEventListener('click', () => { F.bench = !F.bench; computeResults(); });
+$('fTypes').addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  F.types.has(b.dataset.t) ? F.types.delete(b.dataset.t) : F.types.add(b.dataset.t); computeResults();
+});
+$('fAsc').addEventListener('change', e => { F.minAsc = +e.target.value; computeResults(); });
+$('fQ').addEventListener('change', e => { F.minQ = +e.target.value; computeResults(); });
+$('fFav').addEventListener('change', e => { F.favOnly = e.target.checked; computeResults(); });
+$('fUnclimbed').addEventListener('change', e => { F.unclimbed = e.target.checked; computeResults(); });
+$('sort').addEventListener('change', e => { F.sort = e.target.value; computeResults(); });
+$('fReset').addEventListener('click', () => {
+  Object.assign(F, defaultFilters(), {sort: F.sort});
+  $('q').value = ''; $('gmin').value = GMIN; $('gmax').value = GMAX; $('fAsc').value = 0; $('fQ').value = 0;
+  $('fFav').checked = false; $('fUnclimbed').checked = false; computeResults();
+});
+$('moreRes').addEventListener('click', renderMore);
+
+$('aFav').addEventListener('click', () => {
+  const c = state.climb; if (!c) return;
+  favs.has(c.id) ? favs.delete(c.id) : favs.add(c.id); savePrefs(); renderFiche();
+  const row = [...$('list').children].find(r => r.dataset.id === c.id);
+  if (row) { const n = row.querySelector('.rname'); const f = n.querySelector('.fav'); if (favs.has(c.id) && !f) n.append(el('span', 'fav', '♥')); else if (!favs.has(c.id) && f) f.remove(); }
+  if (F.favOnly) computeResults();
+});
+$('aShare').addEventListener('click', async () => {
+  updateHash();
+  const bt = $('aShare');
+  try { await navigator.clipboard.writeText(location.href); bt.textContent = 'Lien copié'; }
+  catch { bt.textContent = 'Lien dans la barre d\'adresse'; }
+  setTimeout(() => { bt.textContent = 'Copier le lien'; }, 2200);
+});
+
+const setToggle = (id, on) => $(id).setAttribute('aria-pressed', String(on));
+$('tDim').addEventListener('click', () => { state.dim = !state.dim; prefs.dim = state.dim; savePrefs(); setToggle('tDim', state.dim); paintClimb(); });
+$('tType').addEventListener('click', () => {
+  state.byType = !state.byType; prefs.byType = state.byType; savePrefs();
+  setToggle('tType', state.byType); $('typeLegend').hidden = !state.byType; paintClimb();
+});
 {
   const lg = $('typeLegend');
   for (const [, T] of Object.entries(TYPES)) {
-    const sp = document.createElement('span'), i = document.createElement('i');
-    i.style.background = '#' + T.color.toString(16).padStart(6, '0'); sp.append(i, T.label); lg.appendChild(sp);
+    const sp = el('span'), i = el('i'); i.style.background = '#' + T.color.toString(16).padStart(6, '0'); sp.append(i, T.label); lg.appendChild(sp);
   }
 }
-
-$('q').addEventListener('input', e => { state.q = e.target.value; renderList(); });
 for (const bt of document.querySelectorAll('[data-view]')) bt.addEventListener('click', () => goView(bt.dataset.view));
+window.addEventListener('hashchange', () => {
+  const h = parseHash();
+  if (h.board && h.board !== (state.board && state.board.id)) selectBoard(h.board, h);
+  else if (state.board) {
+    if (h.angle != null && h.angle !== state.angle) applyAngle(h.angle);
+    if (h.climb && (!state.climb || state.climb.id !== h.climb)) { const c = climbsOf(state.board.id).find(x => x.id === h.climb); if (c) selectClimb(c); }
+  }
+});
 
 /* ---------- Démarrage ---------- */
 const ease = t => 1 - (1 - t) ** 3;
@@ -425,9 +591,14 @@ syncTheme(); buildRoom(scene);
 requestAnimationFrame(loop);
 
 async function start() {
+  buildFilterUI();
+  $('finish').value = state.finish; setToggle('tDim', state.dim); setToggle('tType', state.byType); $('typeLegend').hidden = !state.byType;
   const r = await loadManifest();
   if (!r.ok) $('msg').textContent = `Données absentes (${r.error}). Lancez « npm run data » pour générer les vraies boards.`;
   renderDataInfo(); renderBoards();
-  await selectBoard(boardList()[0].id);
+  const h = parseHash(), ids = new Set(boardList().map(b => b.id));
+  const id = (h.board && ids.has(h.board) && h.board) || (prefs.board && ids.has(prefs.board) && prefs.board) || boardList()[0].id;
+  if (!prefs.board && !h.board) toggleBoardEdit(true);       // première visite : choisir sa board
+  await selectBoard(id, h.board === id ? h : {});
 }
 start();

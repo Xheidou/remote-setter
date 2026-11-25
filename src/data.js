@@ -87,7 +87,8 @@ export function normBoard(b) {
 export function cleanClimb(c) {
   return {id: String(c.id), board: String(c.board), name: String(c.name || 'Sans nom'), setter: c.setter ? String(c.setter) : '',
     grade: c.grade ? String(c.grade) : '', angle: c.angle == null ? null : +c.angle, ascents: +c.ascents || 0,
-    stats: Array.isArray(c.stats) ? c.stats.map(s => [+s[0], String(s[1] || ''), +s[2] || 0, s[3]]) : null,
+    // [angle, cotation, répétitions, note /5, difficulté, benchmark] (les deux derniers absents des anciens fichiers)
+    stats: Array.isArray(c.stats) ? c.stats.map(s => [+s[0], String(s[1] || ''), +s[2] || 0, s[3] == null ? null : +s[3], s[4] == null ? null : +s[4], s[5] ? 1 : 0]) : null,
     holds: c.holds.map(([i, r]) => [+i, ROLES[r] ? r : 'hand']), sample: !!c.sample};
 }
 
