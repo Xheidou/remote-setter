@@ -24,11 +24,11 @@ Valeur : ★ utile · ★★ important · ★★★ ce qui distingue le projet.
 
 | Chantier | Détail | Effort | Valeur | Phase |
 |---|---|---|---|---|
-| ~~Figer les versions~~ ✅ | Boardsesh (`b3a0285`) et CruxCoach (`a9fc009`) figés dans le script ; `package-lock.json` versionné (`npm ci` dans la CI) | S | ★★ | 1 |
+| ~~Figer les versions~~ ✅ | Boardsesh (`b3a0285`) et CruxCoach (`386094b`, commit de fusion des types) figés dans le script ; `package-lock.json` versionné (`npm ci` dans la CI) | S | ★★ | 1 |
 | ~~Contrôles de génération~~ ✅ | Comparaison au manifeste du site en ligne : échec (rien n'est publié) si une board disparaît, perd des prises, des contours, des types ou plus de la moitié de ses blocs ; tableau dans le résumé de l'exécution ; publication forcée possible à la main | S | ★★ | 1 |
 | Alerte d'échec | E-mail GitHub en cas d'échec et résumé des contrôles en place ; reste en option : Discord/Slack | S | ★ | 1 |
 | ~~Garde-fou des 60 jours~~ ✅ | Chaque nuit, la tâche planifiée se réactive par l'API GitHub (sans commit) ; à vérifier au bout de 60 jours sans push | S | ★ | 1 |
-| Suivre CruxCoach | Repasser sur leur branche principale quand les types de prises seront fusionnés et validés | S | ★★ | continu |
+| Suivre CruxCoach | Types fusionnés sur `feat/0.2.5-release` (commit figé `386094b`, vérifié le 25/11 : rien de plus récent) ; repasser sur main quand ils y arriveront ; étiquettes déjà disponibles pour Decoy, Grasshopper, ShinyWall, So iLL | S | ★★ | continu |
 | Nouvelles boards | Kilter Original autres tailles (7×10, 8×12, 12×14…), Decoy, Grasshopper, So iLL, Touchstone : une entrée de configuration chacune + dimensions physiques | M | ★★ | 2–3 |
 | Positions MoonBoard exactes | Remplacer la grille reconstruite par des mesures réelles | M | ★ | 3 |
 | Kicker Tension | Trouver ou mesurer la hauteur réelle | S | ★ | continu |

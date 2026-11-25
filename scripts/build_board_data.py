@@ -66,9 +66,10 @@ OUTLINE_PATH = "packages/shared/board-art-geometry/src/generated/{board}/{layout
 # Types de prises (jug, edge, sloper, pinch, pocket, volume, foot_chip) + orientation : CruxCoach, CC BY 4.0
 TYPES_RAW = "https://raw.githubusercontent.com/CruxCoach/CruxCoach/{ref}/androidApp/src/main/assets/hold_types/{board}.json"
 TYPES_CREDIT = "Hold types by CruxCoach (https://github.com/CruxCoach/CruxCoach), CC BY 4.0"
-# Les fichiers de types n'existent pour l'instant que dans la demande de fusion n° 95 de CruxCoach (pas sur
-# une branche) : on lit ce commit précis. À mettre à jour quand leurs étiquettes seront fusionnées ou validées.
-TYPES_REF = "a9fc009c8a4fc66b19c880994541e396ed894d1d"
+# Commit de fusion de la demande n° 95 de CruxCoach, sur leur branche feat/0.2.5-release (pas encore sur main) ;
+# étiquettes identiques à celles de la PR (a9fc009). Vérifié le 25/11/2026 : aucune étiquette plus récente sur
+# aucune branche. À mettre à jour quand leurs étiquettes arriveront sur main ou seront validées.
+TYPES_REF = "386094b369b807bfe02ec2db31c940e7a3406c7e"
 # Géométrie et contours des prises : commit Boardsesh vérifié (24/11/2026). Changer volontairement, après test :
 #   python3 scripts/build_board_data.py --no-climbs --ref <nouveau commit>   puis contrôler le site en local.
 BOARDSESH_REF = "b3a0285908da0d9e4be984ebe5731ed72b33de10"
