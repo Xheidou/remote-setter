@@ -3,7 +3,8 @@ import * as THREE from 'three';
 import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls.js';
 import {ROLES, TYPES, DIRS, fmt, nf} from './config.js';
 import {holdGeometry, ringGeometry} from './holds/geometry.js';
-import {MAT, EYE, ROOM, buildRoom, finishTex, textSprite, matArea, steel, steelLight} from './scene/room.js';
+import {mergeHolds, paintHold, commitPaint, holdMaterial, pickHold} from './holds/merge.js';
+import {MAT, EYE, ROOM, buildRoom, finishTex, textSprite, matArea, faceBox, mergeStatic, steel, steelLight} from './scene/room.js';
 import {store, loadManifest, loadBoard, openClimbs, climbsAt, hasClimbsAt, loadClimb, climbKey, boardList, importData} from './data.js';
 import {GRADES, GMIN, GMAX, TYPE_ORDER, view, holdProfile, filterClimbs, defaultFilters, activeCount, SORTS} from './ui/filters.js';
 
@@ -11,10 +12,14 @@ const $ = id => document.getElementById(id);
 const host = $('host');
 
 /* ---------- Scène ---------- */
-const renderer = new THREE.WebGLRenderer({antialias: true});
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+// Qualité graphique : réduite d'office sur téléphone et petite tablette (ou peu de mémoire), puis ajustée
+// automatiquement si l'image saccade (voir adaptQuality)
+const LOW = (matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 820) || (navigator.deviceMemory || 8) <= 4;
+const renderer = new THREE.WebGLRenderer({antialias: !LOW, powerPreference: 'high-performance'});
+let dpr = Math.min(devicePixelRatio || 1, LOW ? 1.5 : 2);
+renderer.setPixelRatio(dpr);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = LOW ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
 renderer.outputEncoding = THREE.sRGBEncoding;
 host.appendChild(renderer.domElement);
 
@@ -29,7 +34,7 @@ controls.target.set(0, 1.8, 0.6);
 scene.add(new THREE.HemisphereLight(0xfff8ee, 0x4a4540, 0.55));
 const sun = new THREE.DirectionalLight(0xfff6ea, 0.75);   // éclairage principal venant du plafond, vers l'avant
 sun.position.set(2.5, 9, 7); sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.mapSize.setScalar(LOW ? 1024 : 2048);
 Object.assign(sun.shadow.camera, {left: -9, right: 9, top: 9, bottom: -5, near: 1, far: 30});
 sun.shadow.bias = -0.0005; sun.shadow.camera.updateProjectionMatrix();
 scene.add(sun);
@@ -61,39 +66,51 @@ const state = {finish: prefs.finish || 'noir', board: null, climb: null, angle: 
   dim: prefs.dim !== false, byType: !!prefs.byType};
 const F = defaultFilters();
 let boardG = null, panelG = null, kickerG = null, kickBox = null, ruler = null, struts = [];
-let holds = new Map(), holdMeshes = [], litG = [], measureLine = null, lastPick = null;
+let holds = new Map(), holdLayers = [], litG = [], measureLine = null, lastPick = null;
+
+/* ---------- Rendu à la demande ---------- */
+// Une image n'est calculée que si la caméra bouge, pendant une transition de vue, ou après invalidate()
+let dirty = true;
+const invalidate = () => { dirty = true; };
+for (const ev of ['input', 'change', 'click', 'keydown']) document.addEventListener(ev, invalidate, true);   // filet de sécurité
 
 /* ---------- Prises ---------- */
+// Toutes les prises d'un plan sont fusionnées (src/holds/merge.js) : couleur et surbrillance par sommet
 const HOLD_LO = new THREE.Color(0x8d9096), HOLD_HI = new THREE.Color(0xf1efe9);   // prises blanc cassé (Kilter)
-const matCache = new Map();
-function holdMat(shade, dimmed, type) {
+function holdColor(shade, dimmed, type, out) {
   const T = state.byType && TYPES[type];
-  const q = Math.round(Math.max(0, Math.min(1, shade)) * 16), key = (T ? type : q) + (dimmed ? 'd' : '');
-  if (!matCache.has(key)) {
-    const c = T ? new THREE.Color(T.color) : HOLD_LO.clone().lerp(HOLD_HI, q / 16);
-    if (dimmed) c.multiplyScalar(0.42);
-    matCache.set(key, new THREE.MeshStandardMaterial({color: c, roughness: 0.62, metalness: 0.02}));
-  }
-  return matCache.get(key);
+  if (T) out.setHex(T.color); else out.copy(HOLD_LO).lerp(HOLD_HI, Math.max(0, Math.min(1, shade)));
+  if (dimmed) out.multiplyScalar(0.42);
+  return out;
 }
+const holdMatV = holdMaterial();
 const fallbackGeo = new THREE.SphereGeometry(1, 16, 12);
 const boltHoleGeo = new THREE.CircleGeometry(0.0055, 20), boltSinkGeo = new THREE.RingGeometry(0.0055, 0.0088, 20);
 const boltHoleMat = new THREE.MeshBasicMaterial({color: 0x121316, polygonOffset: true, polygonOffsetFactor: -2});
 const wellMat = new THREE.MeshStandardMaterial({color: 0x1b1c1f, roughness: 1, side: THREE.DoubleSide});
-const setHoldMat = (h, m) => { h.mesh.material = h.hole ? [m, wellMat] : m; };
+const ringMats = new Map();
+const ringMat = c => ringMats.get(c) || ringMats.set(c, new THREE.MeshBasicMaterial({color: c, side: THREE.DoubleSide})).get(c);
 const boltSinkMat = new THREE.MeshStandardMaterial({color: 0x8e9196, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -2});
 
 /* ---------- Construction de la board ---------- */
+// Libère les géométries et textures d'une board remplacée ; les géométries et matériaux partagés restent
+const SHARED_GEOS = new Set([fallbackGeo, boltHoleGeo, boltSinkGeo]);
+function disposeTree(root) {
+  root.traverse(o => {
+    if (o.geometry && !o.isSprite && !SHARED_GEOS.has(o.geometry)) o.geometry.dispose();   // les sprites partagent une géométrie
+    for (const m of [].concat(o.material || [])) if (m.map) { m.map.dispose(); m.dispose(); }
+  });
+}
 function buildBoard(b) {
-  if (boardG) scene.remove(boardG);
+  if (boardG) { scene.remove(boardG); disposeTree(boardG); }     // plusieurs Mo par board sur le GPU
   boardG = new THREE.Group(); scene.add(boardG);
   const W = b.width, P = b.panel, T = 0.04;
   kickerG = new THREE.Group(); panelG = new THREE.Group(); boardG.add(kickerG, panelG);
   const edge = new THREE.MeshStandardMaterial({color: 0x1d2024, roughness: 0.6});
   const wood = (w, h) => new THREE.MeshStandardMaterial({map: finishTex(state.finish, w, h), roughness: state.finish === 'bois' ? 0.85 : 0.75});
-  kickBox = new THREE.Mesh(new THREE.BoxGeometry(W, 1, T), [edge, edge, edge, edge, wood(W, 1), edge]);
+  kickBox = faceBox(W, 1, T, edge, wood(W, 1));
   kickBox.castShadow = kickBox.receiveShadow = true; kickerG.add(kickBox);
-  const pan = new THREE.Mesh(new THREE.BoxGeometry(W, P, T), [edge, edge, edge, edge, wood(W, P), edge]);
+  const pan = faceBox(W, P, T, edge, wood(W, P));
   pan.position.set(0, P / 2, -T / 2); pan.castShadow = pan.receiveShadow = true; panelG.add(pan);
   // Longerons acier de chaque côté du panneau et traverse haute
   for (const s of [-1, 1]) {
@@ -116,21 +133,27 @@ function buildBoard(b) {
   // Tapis devant la board (couvre la zone sous le dévers maximal)
   boardG.add(matArea(-W / 2 - 0.9, W / 2 + 0.9, 0.02, Math.max(4, P * 0.95 + 0.6), 0x243248));
 
-  holds = new Map(); holdMeshes = []; const bolts = [];
+  holds = new Map(); holdLayers = []; litG = []; const bolts = [], items = {kick: [], panel: []};
   for (const [id, x, y, shade, type, dir, foot] of b.holes) {
     const flat = b.outlines[id];
     const built = flat ? holdGeometry(flat, type, dir) : null;
-    let mesh, re, depth;
-    if (built) { mesh = new THREE.Mesh(built.geo, built.hole ? [holdMat(shade, false, type), wellMat] : holdMat(shade, false, type)); re = built.re; depth = built.depth; if (built.bolt) bolts.push({b: built.bolt, x: x - W / 2, y, onKick: y < 0}); }
-    else { re = 0.035; depth = 0.035; mesh = new THREE.Mesh(fallbackGeo, holdMat(shade, false, type)); mesh.scale.set(re, re, re * 0.5); }
-    mesh.position.set(x - W / 2, y, 0.001);
-    mesh.castShadow = true; mesh.receiveShadow = true;
-    const onKick = y < 0;
-    (onKick ? kickerG : panelG).add(mesh);
-    mesh.userData = {id};
-    holds.set(id, {mesh, shade, type, dir, foot, flat, re, depth, onKick, x: x - W / 2, y, hole: !!(built && built.hole)});
-    holdMeshes.push(mesh);
+    const onKick = y < 0, hx = x - W / 2;
+    let re, depth;
+    if (built) { re = built.re; depth = built.depth; if (built.bolt) bolts.push({b: built.bolt, x: hx, y, onKick}); }
+    else { re = 0.035; depth = 0.035; }
+    items[onKick ? 'kick' : 'panel'].push(built ? {id, geo: built.geo, x: hx, y, z: 0.001, hole: built.hole} : {id, geo: fallbackGeo, x: hx, y, z: 0.001, s: [re, re, re * 0.5]});
+    if (built) built.geo.dispose();
+    holds.set(id, {shade, type, dir, foot, flat, re, depth, onKick, x: hx, y});
   }
+  // Un maillage par plan (le kicker et le panneau bougent séparément)
+  for (const [k, parent] of [['kick', kickerG], ['panel', panelG]]) {
+    if (!items[k].length) continue;
+    const merged = mergeHolds(items[k]);
+    const mesh = new THREE.Mesh(merged.geometry, [holdMatV, wellMat]);
+    mesh.castShadow = mesh.receiveShadow = true;
+    parent.add(mesh); holdLayers.push({mesh, merged});
+  }
+  for (const L of holdLayers) for (const p of L.merged.parts) holds.get(p.id).merged = L.merged;
   // Trous de vis : fraisure claire + trou sombre, posés sur la surface de la prise, deux maillages instanciés par plan
   for (const onK of [true, false]) {
     const list = bolts.filter(v => v.onKick === onK); if (!list.length) continue;
@@ -144,6 +167,7 @@ function buildBoard(b) {
     for (const im of [hole, sink]) { im.frustumCulled = false; (onK ? kickerG : panelG).add(im); }
   }
   buildRuler(b);
+  paintClimb();
 }
 
 // Le kicker part du sol ; K est sa hauteur visible au-dessus des tapis
@@ -159,7 +183,7 @@ function setKicker(K) {
 }
 
 function buildRuler(b) {
-  if (ruler) scene.remove(ruler);
+  if (ruler) { scene.remove(ruler); disposeTree(ruler); }
   ruler = new THREE.Group();
   const x = -b.width / 2 - 0.55, top = Math.ceil(b.panel + b.kicker[2] + 0.3);
   const m = new THREE.MeshBasicMaterial({color: 0xe8ebed});
@@ -171,33 +195,32 @@ function buildRuler(b) {
     tick.position.set(x + (major ? 0.08 : 0.04), MAT + h, 0.05); ruler.add(tick);
     if (major) { const s = textSprite(h + ' m', 0.13); s.position.set(x - 0.2, MAT + h, 0.05); ruler.add(s); }
   }
+  mergeStatic(ruler);
   scene.add(ruler);
 }
 
 /* ---------- Bloc sélectionné ---------- */
+const _col = new THREE.Color(), _emi = new THREE.Color();
 function paintClimb() {
-  for (const o of litG) o.parent && o.parent.remove(o);
+  for (const o of litG) { o.parent && o.parent.remove(o); o.geometry.dispose(); }
   litG = [];
-  const c = state.climb, inClimb = new Map(c ? c.holds.map(([id, r]) => [id, r]) : []);
+  const c = state.climb, inClimb = new Map(c && c.holds ? c.holds.map(([id, r]) => [id, r]) : []);
   const dim = state.dim && !!c;
   for (const [id, h] of holds) {
     const role = inClimb.get(id);
     if (role) {
       const R = ROLES[role] || ROLES.hand;
-      const m = holdMat(h.shade, false, h.type).clone();
-      m.emissive = new THREE.Color(R.c); m.emissiveIntensity = 0.22;
-      setHoldMat(h, m);
-      const parent = h.onKick ? kickerG : panelG;
-      const ringMat = new THREE.MeshBasicMaterial({color: R.c, side: THREE.DoubleSide});
-      let ring;
-      if (h.flat) ring = new THREE.Mesh(ringGeometry(h.flat, h.re), ringMat);
-      else { ring = new THREE.Mesh(new THREE.RingGeometry(h.re * 1.1, h.re * 1.45, 32), ringMat); }
+      paintHold(h.merged, id, holdColor(h.shade, false, h.type, _col), _emi.set(R.c).multiplyScalar(0.22));
+      const geo = h.flat ? ringGeometry(h.flat, h.re) : new THREE.RingGeometry(h.re * 1.1, h.re * 1.45, 32);
+      const ring = new THREE.Mesh(geo, ringMat(R.c));
       ring.position.set(h.x, h.y, 0.003);
-      parent.add(ring); litG.push(ring);
+      (h.onKick ? kickerG : panelG).add(ring); litG.push(ring);
     } else {
-      setHoldMat(h, holdMat(h.shade, dim, h.type));
+      paintHold(h.merged, id, holdColor(h.shade, dim, h.type, _col), null);
     }
   }
+  for (const L of holdLayers) commitPaint(L.merged);
+  invalidate();
 }
 
 /* ---------- Angle & mesures ---------- */
@@ -210,6 +233,7 @@ function updateDims() {
 function clearMeasure() {
   if (measureLine) { scene.remove(measureLine); measureLine = null; }
   lastPick = null; $('info').textContent = '';
+  invalidate();
 }
 function updateStruts() {
   if (!panelG || !struts.length) return;
@@ -227,7 +251,7 @@ function updateStruts() {
 function setAngle(a) {
   state.angle = a;
   panelG.rotation.x = THREE.MathUtils.degToRad(a);
-  updateStruts();
+  updateStruts(); invalidate();
   $('angleOut').textContent = a + '°';
   updateDims(); clearMeasure();
   boardPrefs(state.board.id).angle = a; savePrefs();
@@ -477,7 +501,7 @@ function goView(v, instant) {
   if (v === 'side') { pos = new THREE.Vector3(Math.min(ROOM.x - 1.6, b.width / 2 + fit * 1.3), 2.0, mid.z + 1.6); tgt = mid.clone().setX(0); }
   else if (v === 'climber') { pos = new THREE.Vector3(0, MAT + EYE, 1.9 + mid.z * 0.4); tgt = panelPoint(0.7); }   // vue depuis le tapis, à hauteur des yeux
   else { pos = new THREE.Vector3(0, 2.1, Math.min(ROOM.front - 1, fit * 1.5 + mid.z)); tgt = mid; }
-  if (instant || reduce) { camera.position.copy(pos); controls.target.copy(tgt); tween = null; }
+  if (instant || reduce) { camera.position.copy(pos); controls.target.copy(tgt); tween = null; invalidate(); }
   else tween = {p0: camera.position.clone(), t0: controls.target.clone(), p1: pos, t1: tgt, s: performance.now(), d: 650};
 }
 
@@ -490,9 +514,10 @@ renderer.domElement.addEventListener('pointerup', e => {
   const rc = renderer.domElement.getBoundingClientRect();
   ndc.set((e.clientX - rc.left) / rc.width * 2 - 1, -((e.clientY - rc.top) / rc.height) * 2 + 1);
   ray.setFromCamera(ndc, camera);
-  const hits = ray.intersectObjects(holdMeshes, false);
-  if (!hits.length) return;
-  const id = hits[0].object.userData.id, h = holds.get(id);
+  let hit = null; scene.updateMatrixWorld();
+  for (const L of holdLayers) { const r = pickHold(L.merged, L.mesh, ray.ray); if (r && (!hit || r.distance < hit.distance)) hit = r; }
+  if (!hit) return;
+  const id = hit.id, h = holds.get(id);
   const role = state.climb ? (state.climb.holds.find(x => x[0] === id) || [])[1] : null;
   const wp = new THREE.Vector3(h.x, h.y, 0); (h.onKick ? kickerG : panelG).localToWorld(wp);
   const T = TYPES[h.type], Dd = DIRS[h.dir];
@@ -503,6 +528,7 @@ renderer.domElement.addEventListener('pointerup', e => {
     measureLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([lastPick, wp]), new THREE.LineBasicMaterial({color: 0xffffff, depthTest: false}));
     measureLine.renderOrder = 10; scene.add(measureLine);
   }
+  invalidate();
   lastPick = wp.clone();
   const info = $('info'); info.textContent = '';
   const card = document.createElement('div'); card.className = 'card'; card.textContent = txt; info.appendChild(card);
@@ -512,12 +538,13 @@ renderer.domElement.addEventListener('pointerup', e => {
 function syncTheme() {               // la scène est une salle intérieure : fond et brume fixes
   scene.background = new THREE.Color(0x1d1f22);
   scene.fog = new THREE.Fog(0x2a2b2e, 16, 34);
+  invalidate();
 }
 new MutationObserver(syncTheme).observe(document.documentElement, {attributes: true, attributeFilter: ['data-theme']});
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', syncTheme);
 const ro = new ResizeObserver(() => {
   const w = host.clientWidth, h = host.clientHeight; if (!w || !h) return;
-  renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+  renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); invalidate();
 });
 ro.observe(host);
 
@@ -623,12 +650,36 @@ function loop(now) {
     camera.position.lerpVectors(tween.p0, tween.p1, k); controls.target.lerpVectors(tween.t0, tween.t1, k);
     if (t >= 1) tween = null;
   }
-  controls.update();
+  const moved = controls.update();
   const cp = camera.position;                                    // la caméra reste dans la salle
   cp.x = Math.max(-ROOM.x + 0.4, Math.min(ROOM.x - 0.4, cp.x)); cp.z = Math.max(ROOM.back + 0.4, Math.min(ROOM.front - 0.4, cp.z)); cp.y = Math.max(0.5, Math.min(ROOM.h - 0.4, cp.y));
-  renderer.render(scene, camera); requestAnimationFrame(loop);
+  if (moved || tween || dirty) {
+    dirty = false;
+    renderer.render(scene, camera);
+    adaptQuality(now);
+  } else lastFrame = 0;
+  requestAnimationFrame(loop);
 }
-syncTheme(); buildRoom(scene);
+// Si l'image saccade pendant qu'on tourne autour de la board (médiane > 34 ms sur 45 images consécutives),
+// on baisse la résolution par paliers jusqu'à 1, puis la taille de la carte d'ombres
+let lastFrame = 0, frameTimes = [];
+function adaptQuality(now) {
+  if (lastFrame && document.visibilityState === 'visible') {
+    const dt = now - lastFrame;
+    if (dt < 250) frameTimes.push(dt);
+    if (frameTimes.length >= 45) {
+      const med = frameTimes.sort((a, b) => a - b)[frameTimes.length >> 1];
+      frameTimes = [];
+      if (med > 34) {
+        if (dpr > 1) { dpr = Math.max(1, dpr - 0.5); renderer.setPixelRatio(dpr); dirty = true; }
+        else if (sun.shadow.mapSize.x > 1024) { sun.shadow.mapSize.setScalar(1024); sun.shadow.map && sun.shadow.map.dispose(); sun.shadow.map = null; dirty = true; }
+      }
+    }
+  }
+  lastFrame = now;
+}
+syncTheme(); buildRoom(scene, {low: LOW});
+if (import.meta.env && import.meta.env.DEV) window.__board3d = {renderer, scene, camera, state, LOW};   // vérifications (npm run dev)
 requestAnimationFrame(loop);
 
 async function start() {

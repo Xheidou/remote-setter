@@ -24,7 +24,7 @@ Valeur : ★ utile · ★★ important · ★★★ ce qui distingue le projet.
 
 | Chantier | Détail | Effort | Valeur | Phase |
 |---|---|---|---|---|
-| ~~Figer les versions~~ ✅ | Boardsesh (`b3a0285`) et CruxCoach (`a9fc009`) figés dans le script ; reste : committer `package-lock.json` | S | ★★ | 1 |
+| ~~Figer les versions~~ ✅ | Boardsesh (`b3a0285`) et CruxCoach (`a9fc009`) figés dans le script ; `package-lock.json` versionné (`npm ci` dans la CI) | S | ★★ | 1 |
 | Contrôles de génération | Échouer si une board perd des prises, des contours ou la plupart de ses blocs par rapport à la veille | S | ★★ | 1 |
 | Alerte d'échec | Notification (e-mail GitHub déjà en place ; option Discord/Slack) | S | ★ | 1 |
 | Garde-fou des 60 jours | Commit automatique mensuel ou rappel, pour que GitHub ne suspende pas la tâche planifiée | S | ★ | 1 |
@@ -37,10 +37,10 @@ Valeur : ★ utile · ★★ important · ★★★ ce qui distingue le projet.
 
 | Chantier | Détail | Effort | Valeur | Phase |
 |---|---|---|---|---|
-| Regrouper les maillages | Toutes les prises d'une board en un ou deux objets 3D au lieu de ~500 ; idem pour la salle | M | ★★ | 1 |
+| ~~Regrouper les maillages~~ ✅ | Prises fusionnées en un maillage par plan (panneau, kicker), couleur et surbrillance par sommet ; salle regroupée par matériau, tapis instanciés ; rendu à la demande (rien n'est recalculé quand la scène ne bouge pas). Kilter Original : ~100 appels de dessin par image au lieu de ~2 000 | M | ★★ | 1 |
 | ~~Blocs découpés~~ ✅ | Une liste par angle (sans les prises), le détail par paquets, `all.json` pour « jamais faits à cet angle » ; tous les blocs gardés (Kilter Original : 83 900, 0,9 Mo compressé à 40° au lieu de 7 Mo) | M | ★★ | 2 |
 | Mise à jour de Three.js | Passer de r147 à une version récente (gestion des couleurs, ombres) | M | ★ | 2 |
-| Qualité graphique adaptative | Ombres et détail de la salle réduits automatiquement sur téléphone | S | ★★ | 1–2 |
+| ~~Qualité graphique adaptative~~ ✅ | Téléphone : résolution ×1,5 max, ombres 1024 non adoucies, sans anticrénelage, murs voisins moins chargés et sans ombres ; partout : résolution puis ombres réduites si l'image saccade | S | ★★ | 1–2 |
 | Tests | Tests du script de données (faux snapshots) et du modelage des prises ; vérification visuelle automatique dans la CI | M | ★★ | 2 |
 | Version installable (PWA) | Fonctionne hors ligne une fois la board chargée | M | ★ | 3 |
 
@@ -99,7 +99,7 @@ Valeur : ★ utile · ★★ important · ★★★ ce qui distingue le projet.
 
 ## Prochaines étapes proposées
 
-1. Regrouper les maillages et adapter la qualité graphique au téléphone (performance).
+1. ~~Regrouper les maillages et adapter la qualité graphique au téléphone (performance).~~ ✅
 2. Ajouter les contrôles de génération.
 3. ~~Refonte du panneau (board / recherche de blocs / fiche bloc), filtres, tri, liens partageables et fichiers de blocs découpés.~~ ✅
 4. Écrire à Boardsesh et à CruxCoach.
