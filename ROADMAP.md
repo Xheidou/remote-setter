@@ -1,6 +1,6 @@
 # Feuille de route — Board 3D
 
-État au 25 novembre 2026 : site en ligne (GitHub Pages), 9 boards réelles, prises modelées selon leur contour, leur type et leur orientation (formes validées), salle d'escalade en 3D, données régénérées et contrôlées chaque nuit, interface pensée aussi pour le téléphone.
+État au 25 novembre 2026 : site en ligne (GitHub Pages), 11 boards réelles, prises modelées selon leur contour, leur type et leur orientation (formes validées), salle d'escalade en 3D, données régénérées et contrôlées chaque nuit, interface pensée aussi pour le téléphone.
 
 Effort : **S** = quelques heures · **M** = quelques jours · **L** = une à plusieurs semaines.
 Valeur : ★ utile · ★★ important · ★★★ ce qui distingue le projet.
@@ -29,7 +29,7 @@ Valeur : ★ utile · ★★ important · ★★★ ce qui distingue le projet.
 | Alerte d'échec | E-mail GitHub en cas d'échec et résumé des contrôles en place ; reste en option : Discord/Slack | S | ★ | 1 |
 | ~~Garde-fou des 60 jours~~ ✅ | Chaque nuit, la tâche planifiée se réactive par l'API GitHub (sans commit) ; à vérifier au bout de 60 jours sans push | S | ★ | 1 |
 | Suivre CruxCoach | Types fusionnés sur `feat/0.2.5-release` (commit figé `386094b`, vérifié le 25/11 : rien de plus récent) ; repasser sur main quand ils y arriveront ; étiquettes déjà disponibles pour Decoy, Grasshopper, ShinyWall, So iLL | S | ★★ | continu |
-| Nouvelles boards | Kilter Original autres tailles (7×10, 8×12, 12×14…), Decoy, Grasshopper, So iLL, Touchstone : une entrée de configuration chacune + dimensions physiques | M | ★★ | 2–3 |
+| Nouvelles boards | ✅ Decoy Dungeon Trainer et Grasshopper GrandMaster (12×12, kicker estimé). Reste : So iLL (étiquettes CruxCoach vides), Touchstone (pas d'étiquettes), Kilter Original autres tailles (7×10, 8×12, 12×14…) ; vérifier les dimensions physiques et kickers réels | M | ★★ | 2–3 |
 | Positions MoonBoard exactes | Remplacer la grille reconstruite par des mesures réelles | M | ★ | 3 |
 | Kicker Tension | Trouver ou mesurer la hauteur réelle | S | ★ | continu |
 
@@ -93,7 +93,7 @@ Valeur : ★ utile · ★★ important · ★★★ ce qui distingue le projet.
 | Contacter Boardsesh | Présenter le projet, confirmer l'usage des snapshots et de la géométrie, proposer des liens croisés | S | ★★★ |
 | Contacter CruxCoach | Remonter les prises mal classées, suivre la validation de leurs étiquettes | S | ★★ |
 | Droits sur les contours | Les contours viennent des images des fabricants : obtenir un accord ou prévoir une alternative | M | ★★★ |
-| Marques | Usage des noms Kilter, Tension, MoonBoard ; nom et identité propres au projet | S | ★★ |
+| Marques | Usage des noms Kilter, Tension, MoonBoard, Decoy, Grasshopper ; nom et identité propres au projet | S | ★★ |
 | Licence du projet | Choisir une licence pour le code (MIT, Apache-2.0…) | S | ★ |
 | Retours utilisateurs | Page de contact ou formulaire, signalement d'erreur sur une prise ou un bloc | S | ★★ |
 

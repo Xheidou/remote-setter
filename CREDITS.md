@@ -15,7 +15,7 @@ Les blocs sont créés par leurs ouvreurs ; leur nom est affiché avec chaque bl
 
 - Les contours des prises sont détourés par Boardsesh à partir des images des boards publiées par les fabricants : vérifier les droits sur ces images.
 - Les étiquettes de types de prises de CruxCoach ne sont pas encore validées à l'aveugle par leur projet (confiance annoncée autour de 0,4).
-- Les noms Kilter, Tension et MoonBoard sont des marques de leurs propriétaires.
+- Les noms Kilter, Tension, MoonBoard, Decoy et Grasshopper sont des marques de leurs propriétaires.
 - Écrire aux mainteneurs de Boardsesh et de CruxCoach pour présenter le projet.
 
 ## Approximations connues

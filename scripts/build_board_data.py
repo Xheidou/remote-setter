@@ -81,6 +81,8 @@ ROLE_CODES = {
                **{c: "hand" for c in range(36, 42)}},
     "tension": {1: "start", 2: "hand", 3: "finish", 4: "foot", 5: "start", 6: "hand", 7: "finish", 8: "foot"},
     "moonboard": {42: "start", 43: "hand", 44: "finish", 45: "foot", 46: "hand", 47: "hand", 48: "hand"},
+    # nouvelles boards Aurora : mêmes codes 1/2/3/4 que la Tension
+    **{b: {1: "start", 2: "hand", 3: "finish", 4: "foot"} for b in ("decoy", "grasshopper")},
 }
 GRADES = {10: "4a/V0", 11: "4b/V0", 12: "4c/V0", 13: "5a/V1", 14: "5b/V1", 15: "5c/V2", 16: "6a/V3",
           17: "6a+/V3", 18: "6b/V4", 19: "6b+/V4", 20: "6c/V5", 21: "6c+/V5", 22: "7a/V6", 23: "7a+/V7",
@@ -119,6 +121,20 @@ BOARDS = {
     "moonboard-2024": dict(name="MoonBoard 2024", maker="Moon", board="moonboard", layout=3, size=1),
     "moonboard-masters-2017": dict(name="MoonBoard Masters 2017", maker="Moon", board="moonboard", layout=4, size=1),
     "moonboard-masters-2019": dict(name="MoonBoard Masters 2019", maker="Moon", board="moonboard", layout=5, size=1),
+    # Boards Aurora plus récentes (géométrie, contours et blocs Boardsesh ; types CruxCoach 386094b).
+    # Tailles = la plus grande, celle que tous les blocs déclarent compatible. Dimensions : nom commercial
+    # « 12 x 12 » ; hauteur du kicker non publiée -> estimée comme la Tension 2.
+    "decoy-dungeon": dict(
+        name="Decoy Dungeon Trainer 12×12", maker="Decoy", board="decoy", layout=2, size=1,
+        sets=list(range(2, 21)), edges=(-68, 68, 0, 144), kicker_top=0, width_in=144, panel_in=144,
+        kicker=[0.30, 0.20, 0.60], note="12' × 12' ; hauteur du kicker non publiée (estimée)"),
+    "grasshopper": dict(
+        name="Grasshopper GrandMaster 12×12", maker="Grasshopper", board="grasshopper", layout=1, size=4,
+        sets=[1, 2, 3, 4, 5, 6], edges=(-68, 68, 0, 144), kicker_top=0, width_in=144, panel_in=144,
+        kicker=[0.30, 0.20, 0.60], note="12' × 12' avec Tweeners ; hauteur du kicker non publiée (estimée)"),
+    # So iLL (layout 1, taille 2 = 12×12, 20 rangées dont 2 sur le kicker) : géométrie et blocs disponibles
+    # chez Boardsesh, mais les 340 étiquettes CruxCoach sont vides (« schematic drawing: type not visible ») :
+    # à ajouter quand elles seront renseignées. Touchstone : pas d'étiquettes CruxCoach du tout.
 }
 # MoonBoard standard : 2,44 m de large, grille 11 × 18 au pas de 20 cm, kicker 370 mm, 40° ou 25°,
 # hauteur totale 3,15 m à 40° -> panneau ≈ 3,63 m (Moon Climbing, guide de construction).

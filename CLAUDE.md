@@ -1,6 +1,6 @@
 # Contexte du projet pour Claude
 
-Board 3D (dépôt `remote-setter`) : visualiseur 3D de boards d'escalade (Kilter, Tension, MoonBoard) dans une salle d'escalade virtuelle. Site statique (Vite + Three.js 0.147, sans framework) publié sur GitHub Pages ; données régénérées chaque nuit par GitHub Actions. Langue du projet et de l'interface : français.
+Board 3D (dépôt `remote-setter`) : visualiseur 3D de boards d'escalade (Kilter, Tension, MoonBoard, Decoy, Grasshopper) dans une salle d'escalade virtuelle. Site statique (Vite + Three.js 0.147, sans framework) publié sur GitHub Pages ; données régénérées chaque nuit par GitHub Actions. Langue du projet et de l'interface : français.
 
 ## Commandes
 
@@ -29,10 +29,10 @@ npm test             # tests Node (tests/*.test.js) + Python (tests/test_*.py)
 
 - Géométrie et contours : dépôt Boardsesh (Apache-2.0), `hole-placements/<board>.cjs` et `board-art-geometry/<board>/<layout>-<size>.cjs`. Rayon de contour = 4 unités Aurora (pouces) ; MoonBoard = 0,525 × pas de grille (0,20 m).
 - Blocs : snapshots publics Boardsesh (`snapshots.boardsesh.com/board-snapshots/v1-gzip/manifest.json`). Conditions : héberger soi-même, ne pas appeler leurs serveurs depuis le site, créditer les ouvreurs.
-- Types de prises : CruxCoach (CC BY 4.0), fichiers `androidApp/src/main/assets/hold_types/*.json`, fusionnés (PR n° 95) sur leur branche `feat/0.2.5-release`, pas encore sur main → `TYPES_REF` figé sur le commit de fusion `386094b` (mêmes étiquettes que la PR, `a9fc009`). Cette branche a aussi des étiquettes Decoy, Grasshopper, ShinyWall et So iLL (boards pas encore gérées). Le script échoue si une board n'a aucun type (sauf `--allow-missing-types`).
+- Types de prises : CruxCoach (CC BY 4.0), fichiers `androidApp/src/main/assets/hold_types/*.json`, fusionnés (PR n° 95) sur leur branche `feat/0.2.5-release`, pas encore sur main → `TYPES_REF` figé sur le commit de fusion `386094b` (mêmes étiquettes que la PR, `a9fc009`). Decoy et Grasshopper sont gérées ; So iLL a la géométrie et les blocs Boardsesh mais des étiquettes CruxCoach vides (« type not visible »), Touchstone n'a pas d'étiquettes, ShinyWall n'est pas chez Boardsesh. Le script échoue si une board n'a aucun type (sauf `--allow-missing-types`).
 - Contrôles avant publication (`--check-against`, branché dans la CI sur le `data/index.json` du site en ligne) : échec si une board disparaît, perd des prises, des contours, des types ou plus de la moitié de ses blocs ; rien n'est alors déployé. Forcer : `--no-check` (CI : Run workflow, case « force »). Une tâche `keepalive` réactive chaque nuit la génération planifiée (pause GitHub après 60 jours sans activité).
-- Versions figées dans le script : `BOARDSESH_REF` (commit `b3a0285`, géométrie et contours) et `TYPES_REF` (CruxCoach `386094b`). Seuls les blocs (snapshots) changent chaque nuit. Tous les blocs sont gardés (`--limit 0`, minimum 3 répétitions à un angle ou benchmark) : ~293 000 blocs, ~970 fichiers, ~120 Mo pour les 9 boards. Three.js figé à 0.147.0 ; `package-lock.json` versionné (la CI fait `npm ci`).
-- Approximations : kicker Tension estimé ; positions MoonBoard reconstruites sur grille ; relief des prises = forme type par catégorie.
+- Versions figées dans le script : `BOARDSESH_REF` (commit `b3a0285`, géométrie et contours) et `TYPES_REF` (CruxCoach `386094b`). Seuls les blocs (snapshots) changent chaque nuit. Tous les blocs sont gardés (`--limit 0`, minimum 3 répétitions à un angle ou benchmark) : ~303 000 blocs pour les 11 boards. Three.js figé à 0.147.0 ; `package-lock.json` versionné (la CI fait `npm ci`).
+- Approximations : kicker Tension, Decoy et Grasshopper estimé (12×12 = 144″ × 144″ d'après le nom commercial) ; positions MoonBoard reconstruites sur grille ; relief des prises = forme type par catégorie.
 
 ## Interface (architecture d'information)
 

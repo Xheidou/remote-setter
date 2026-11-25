@@ -1,8 +1,8 @@
 # Board 3D
 
-Visualiseur 3D de boards d'escalade (Kilter, Tension, MoonBoard), dans une salle d'escalade virtuelle. On choisit une board, son angle et la hauteur de son kicker, puis un bloc : ses prises s'allument, à leur vraie forme et à leur vraie place, pour juger des dimensions et de l'inclinaison à l'échelle humaine.
+Visualiseur 3D de boards d'escalade (Kilter, Tension, MoonBoard, Decoy, Grasshopper), dans une salle d'escalade virtuelle. On choisit une board, son angle et la hauteur de son kicker, puis un bloc : ses prises s'allument, à leur vraie forme et à leur vraie place, pour juger des dimensions et de l'inclinaison à l'échelle humaine.
 
-- 9 boards : Kilter Original 12×12 et Homewall 10×12, Tension 1, Tension 2 Mirror et Spray, MoonBoard 2016, 2024, Masters 2017 et 2019
+- 11 boards : Kilter Original 12×12 et Homewall 10×12, Tension 1, Tension 2 Mirror et Spray, MoonBoard 2016, 2024, Masters 2017 et 2019, Decoy Dungeon Trainer 12×12, Grasshopper GrandMaster 12×12
 - Prises modelées d'après leur contour réel, leur type (réglette, bac, plat, pince, trou…) et leur orientation, avec le trou de vis
 - Angle et hauteur du kicker réglables, cotation et répétitions selon l'angle
 - Cadrages « Board » (face au panneau) et « Bloc » ; navigation comme une carte (glisser, zoom vers le pointeur, double-clic sur une prise) ; mesure de hauteur et de distance entre prises au clic
@@ -13,7 +13,7 @@ Prérequis : Node.js 20+ et Python 3.9+ (aucune dépendance Python).
 
 ```bash
 npm install
-npm run data:geo      # géométrie des 9 boards seulement (rapide, quelques Mo)
+npm run data:geo      # géométrie des 11 boards seulement (rapide, quelques Mo)
 npm run dev           # http://localhost:5173
 npm test              # tests (Node et Python)
 ```

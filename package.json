@@ -2,7 +2,7 @@
   "name": "board3d",
   "version": "0.1.0",
   "private": true,
-  "description": "Visualiseur 3D de boards d'escalade (Kilter, Tension, MoonBoard) : prises, dimensions et inclinaison à l'échelle.",
+  "description": "Visualiseur 3D de boards d'escalade (Kilter, Tension, MoonBoard, Decoy, Grasshopper) : prises, dimensions et inclinaison à l'échelle.",
   "type": "module",
   "scripts": {
     "dev": "vite",
