@@ -1,5 +1,7 @@
 # Régénère les données (géométrie, types de prises, blocs) puis compile et publie le site sur GitHub Pages.
 # Déclenché à chaque push sur main, chaque nuit, et à la main (onglet Actions > Run workflow).
+# Les données sont comparées à celles du site en ligne : si une board perd des prises, des contours ou plus
+# de la moitié de ses blocs, l'exécution échoue (e-mail de GitHub) et le site garde sa version précédente.
 name: Données et déploiement
 
 on:
@@ -12,6 +14,10 @@ on:
       limit:
         description: "Blocs gardés par board (0 = tous)"
         default: "0"
+      force:
+        description: "Publier même si les contrôles des données échouent"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -40,8 +46,16 @@ jobs:
           key: board-data-${{ github.run_id }}
           restore-keys: board-data-
 
-      - name: Générer les données
-        run: python3 scripts/build_board_data.py --limit "${{ github.event.inputs.limit || '0' }}"
+      # Adresse du site en ligne : son manifeste sert de référence pour les contrôles
+      - id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Générer et contrôler les données
+        run: >
+          python3 scripts/build_board_data.py
+          --limit "${{ github.event.inputs.limit || '0' }}"
+          --check-against "${{ steps.pages.outputs.base_url }}/data/index.json"
+          ${{ github.event.inputs.force == 'true' && '--no-check' || '' }}
 
       - uses: actions/setup-node@v4
         with:
@@ -57,6 +71,19 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
+
+  # GitHub met en pause les tâches planifiées d'un dépôt public après 60 jours sans activité :
+  # chaque nuit, on réactive celle-ci par l'API (sans commit).
+  keepalive:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Garder la génération nocturne active
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/deploy.yml/enable"
 
   deploy:
     needs: build

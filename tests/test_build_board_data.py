@@ -74,5 +74,51 @@ class Split(unittest.TestCase):
             self.assertEqual(json.load(open(os.path.join(out, "climbs", "x", "meta.json")))["idLen"], 9)
 
 
+
+def entry(i, holes=100, outlines=100, typed=100, count=1000):
+    return {"id": i, "name": i.upper(), "holes": holes, "outlines": outlines, "typed": typed, "climbCount": count}
+
+
+OLD = {"generated": "hier", "boards": [entry("a"), entry("b", count=0)]}
+
+
+class Checks(unittest.TestCase):
+    def test_rien_a_signaler(self):
+        self.assertEqual(bbd.check_manifest([entry("a"), entry("b", count=10)], OLD), [])
+        self.assertEqual(bbd.check_manifest([entry("a", holes=120, count=600), entry("b", count=10)], OLD), [])
+
+    def test_prises_contours_types_perdus(self):
+        p = bbd.check_manifest([entry("a", holes=99, outlines=0, typed=50), entry("b", count=10)], OLD)
+        self.assertEqual(len(p), 3)
+        self.assertIn("A : prises 100 → 99.", p)
+        self.assertIn("A : contours 100 → 0.", p)
+
+    def test_blocs(self):
+        self.assertEqual(bbd.check_manifest([entry("a", count=499), entry("b", count=10)], OLD),
+                         ["A : blocs 1000 → 499 (moins de la moitié)."])
+        # blocs générés avec une limite, ou pas générés : pas de contrôle des blocs
+        self.assertEqual(bbd.check_manifest([entry("a", count=0), entry("b", count=0)], OLD, climbs=False), [])
+
+    def test_board_absente_ou_vide(self):
+        self.assertEqual(bbd.check_manifest([entry("a")], OLD), ["B : board absente (publiée la veille)."])
+        self.assertEqual(bbd.check_manifest([entry("a")], OLD, full=False), [])          # --boards a
+        self.assertEqual(bbd.check_manifest([entry("c", holes=0, count=0)], None, full=False),
+                         ["C : aucune prise.", "C : aucun bloc."])
+
+    def test_reference(self):
+        with tempfile.TemporaryDirectory() as d:
+            ok, bad = os.path.join(d, "ok.json"), os.path.join(d, "bad.json")
+            json.dump(OLD, open(ok, "w"))
+            open(bad, "w").write("<html>404</html>")
+            self.assertEqual(bbd.load_baseline(ok)["generated"], "hier")
+            self.assertIsNone(bbd.load_baseline(bad))
+            self.assertIsNone(bbd.load_baseline(os.path.join(d, "absent.json")))
+
+    def test_rapport(self):
+        r = bbd.check_report([entry("a", holes=90)], OLD, ["A : prises 100 → 90."])
+        self.assertIn("| A | 100 → 90 | 100 | 100 | 1000 |", r)
+        self.assertIn("Échec", r)
+
+
 if __name__ == "__main__":
     unittest.main()

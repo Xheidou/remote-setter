@@ -1,6 +1,6 @@
 # Feuille de route — Board 3D
 
-État au 24 novembre 2026 : site en ligne (GitHub Pages), 9 boards réelles, prises modelées selon leur contour, leur type et leur orientation (formes validées), salle d'escalade en 3D, données régénérées chaque nuit.
+État au 25 novembre 2026 : site en ligne (GitHub Pages), 9 boards réelles, prises modelées selon leur contour, leur type et leur orientation (formes validées), salle d'escalade en 3D, données régénérées et contrôlées chaque nuit, interface pensée aussi pour le téléphone.
 
 Effort : **S** = quelques heures · **M** = quelques jours · **L** = une à plusieurs semaines.
 Valeur : ★ utile · ★★ important · ★★★ ce qui distingue le projet.
@@ -25,9 +25,9 @@ Valeur : ★ utile · ★★ important · ★★★ ce qui distingue le projet.
 | Chantier | Détail | Effort | Valeur | Phase |
 |---|---|---|---|---|
 | ~~Figer les versions~~ ✅ | Boardsesh (`b3a0285`) et CruxCoach (`a9fc009`) figés dans le script ; `package-lock.json` versionné (`npm ci` dans la CI) | S | ★★ | 1 |
-| Contrôles de génération | Échouer si une board perd des prises, des contours ou la plupart de ses blocs par rapport à la veille | S | ★★ | 1 |
-| Alerte d'échec | Notification (e-mail GitHub déjà en place ; option Discord/Slack) | S | ★ | 1 |
-| Garde-fou des 60 jours | Commit automatique mensuel ou rappel, pour que GitHub ne suspende pas la tâche planifiée | S | ★ | 1 |
+| ~~Contrôles de génération~~ ✅ | Comparaison au manifeste du site en ligne : échec (rien n'est publié) si une board disparaît, perd des prises, des contours, des types ou plus de la moitié de ses blocs ; tableau dans le résumé de l'exécution ; publication forcée possible à la main | S | ★★ | 1 |
+| Alerte d'échec | E-mail GitHub en cas d'échec et résumé des contrôles en place ; reste en option : Discord/Slack | S | ★ | 1 |
+| ~~Garde-fou des 60 jours~~ ✅ | Chaque nuit, la tâche planifiée se réactive par l'API GitHub (sans commit) ; à vérifier au bout de 60 jours sans push | S | ★ | 1 |
 | Suivre CruxCoach | Repasser sur leur branche principale quand les types de prises seront fusionnés et validés | S | ★★ | continu |
 | Nouvelles boards | Kilter Original autres tailles (7×10, 8×12, 12×14…), Decoy, Grasshopper, So iLL, Touchstone : une entrée de configuration chacune + dimensions physiques | M | ★★ | 2–3 |
 | Positions MoonBoard exactes | Remplacer la grille reconstruite par des mesures réelles | M | ★ | 3 |
@@ -48,7 +48,8 @@ Valeur : ★ utile · ★★ important · ★★★ ce qui distingue le projet.
 
 | Chantier | Détail | Effort | Valeur | Phase |
 |---|---|---|---|---|
-| ~~Refonte du panneau et filtres~~ ✅ | Ma board (mémorisée) / Trouver un bloc / fiche ; cotation, vérifiés-benchmarks, type de prise dominant, répétitions, note, favoris | M | ★★★ | 2 |
+| ~~Refonte du panneau et filtres~~ ✅ | Panneau réservé aux blocs, Ma board sur la scène ; feuille des filtres (cotation à deux poignées, vérifiés-benchmarks, style principal, répétitions, note, favoris) ; liste par 20 ; fiche avec style principal et angles grimpés | M | ★★★ | 2 |
+| ~~Parcours téléphone~~ ✅ | Board en plein écran ; réglages et recherche en feuilles (bouton retour) ; fiche réduite avec bloc précédent / suivant | M | ★★★ | 2 |
 | ~~Tri~~ ✅ | Recommandés (répétitions × note), répétitions, note, cotation ; reste : nouveauté | S | ★★ | 2 |
 | ~~Liens partageables~~ ✅ | `#board/bloc/angle` : ouvrir directement un bloc à un angle donné | S | ★★★ | 2 |
 | Favoris et historique | ✅ favoris (navigateur) ; reste : historique, listes personnelles (« projets ») | M | ★★ | 2 |
@@ -60,6 +61,7 @@ Valeur : ★ utile · ★★ important · ★★★ ce qui distingue le projet.
 | Chantier | Détail | Effort | Valeur | Phase |
 |---|---|---|---|---|
 | Lecture du bloc | Numéroter les prises dans l'ordre probable, relier départ → top | M | ★★ | 3 |
+| ~~Cadrages et navigation~~ ✅ | Cadrages Board (face au panneau) et Bloc ; navigation comme une carte (glisser, zoom vers le pointeur, double-clic sur une prise), vue bornée à la board | M | ★★★ | 2 |
 | Comparaison d'angles | Afficher la board à deux angles côte à côte ou en superposition | M | ★★ | 3 |
 | Prises plus fidèles | Profils par modèle de prise (et non plus par catégorie) quand des données existent ; couleurs réelles des sets | L | ★★ | 4 |
 | Ambiance de la salle | Variantes de salle, éclairage réglable, mode sombre de la scène | S | ★ | 3 |
@@ -100,7 +102,7 @@ Valeur : ★ utile · ★★ important · ★★★ ce qui distingue le projet.
 ## Prochaines étapes proposées
 
 1. ~~Regrouper les maillages et adapter la qualité graphique au téléphone (performance).~~ ✅
-2. Ajouter les contrôles de génération.
+2. ~~Ajouter les contrôles de génération.~~ ✅
 3. ~~Refonte du panneau (board / recherche de blocs / fiche bloc), filtres, tri, liens partageables et fichiers de blocs découpés.~~ ✅
 4. Écrire à Boardsesh et à CruxCoach.
 5. Éditeur de blocs et variantes d'un bloc existant ; l'analyse des mouvements en dernier.

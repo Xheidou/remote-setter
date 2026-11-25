@@ -526,6 +526,69 @@ def climbs_desc(key, files_desc, generated, stamp):
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+# ------------------------------------------------------------------------------ contrôles avant publication
+# La génération nocturne ne doit pas publier une board cassée : on compare le nouveau manifeste à celui publié
+# la veille (le site en ligne) et on s'arrête si une board perd des prises, des contours ou la plupart de ses
+# blocs. En cas d'échec, rien n'est déployé : le site garde sa version précédente.
+MIN_CLIMB_RATIO = 0.5          # moins de la moitié des blocs de la veille -> échec
+
+
+def load_baseline(src):
+    """Manifeste de référence (URL ou fichier) ; None s'il est indisponible (premier déploiement, réseau)."""
+    try:
+        raw = http_get(src, timeout=30) if src.startswith(("http://", "https://")) else open(src, "rb").read()
+        data = json.loads(raw)
+        if not isinstance(data.get("boards"), list):
+            raise ValueError("pas de liste de boards")
+        return data
+    except Exception as e:  # noqa: BLE001
+        log(f"  référence indisponible ({src}) : {e} — contrôles par rapport à la veille ignorés")
+        return None
+
+
+def check_manifest(boards, old, full=True, climbs=True):
+    """Problèmes bloquants, en phrases ; liste vide = publication autorisée.
+    boards : entrées du nouveau manifeste ; old : manifeste de la veille (ou None) ;
+    full : toutes les boards ont été générées ; climbs : les blocs ont été générés sans limite."""
+    problems = []
+    for e in boards:
+        if not e.get("holes"):
+            problems.append(f"{e['name']} : aucune prise.")
+        if climbs and not e.get("climbCount"):
+            problems.append(f"{e['name']} : aucun bloc.")
+    if not old:
+        return problems
+    prev = {b["id"]: b for b in old.get("boards", [])}
+    if full:
+        cur = {e["id"] for e in boards}
+        problems += [f"{b['name']} : board absente (publiée la veille)." for i, b in prev.items() if i not in cur]
+    for e in boards:
+        o = prev.get(e["id"])
+        if not o:
+            continue
+        for k, label in (("holes", "prises"), ("outlines", "contours"), ("typed", "prises avec un type")):
+            if e.get(k, 0) < o.get(k, 0):
+                problems.append(f"{e['name']} : {label} {o[k]} → {e.get(k, 0)}.")
+        if climbs and o.get("climbCount") and e.get("climbCount", 0) < o["climbCount"] * MIN_CLIMB_RATIO:
+            problems.append(f"{e['name']} : blocs {o['climbCount']} → {e.get('climbCount', 0)} (moins de la moitié).")
+    return problems
+
+
+def check_report(boards, old, problems):
+    """Tableau Markdown (résumé de l'exécution GitHub Actions) : veille → aujourd'hui pour chaque board."""
+    prev = {b["id"]: b for b in (old or {}).get("boards", [])}
+    fmt = lambda o, e, k: f"{o[k]} → {e.get(k, 0)}" if o and o.get(k) != e.get(k, 0) else str(e.get(k, 0))
+    lines = ["## Contrôle des données", "",
+             "Référence : " + (f"manifeste publié le {old.get('generated', '?')}" if old else "aucune (contrôles de base seulement)"), "",
+             "| Board | Prises | Contours | Typées | Blocs |", "|---|---:|---:|---:|---:|"]
+    for e in boards:
+        o = prev.get(e["id"])
+        lines.append(f"| {e['name']} | {fmt(o, e, 'holes')} | {fmt(o, e, 'outlines')} | {fmt(o, e, 'typed')} | {fmt(o, e, 'climbCount')} |")
+    lines += ["", "**Échec : rien n'est publié.**" if problems else "Aucun problème : publication autorisée."]
+    lines += [f"- {p}" for p in problems]
+    return "\n".join(lines) + "\n"
+
+
 def write_json(path, data):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
@@ -549,6 +612,10 @@ def main():
     ap.add_argument("--no-types", action="store_true", help="ne pas ajouter les types de prises")
     ap.add_argument("--allow-missing-types", action="store_true",
                     help="continuer même si les types de prises n'ont pas pu être lus (sinon : échec)")
+    ap.add_argument("--check-against", default=None, metavar="URL|FICHIER",
+                    help="manifeste publié la veille : échec si une board perd des prises, des contours "
+                         "ou plus de la moitié de ses blocs")
+    ap.add_argument("--no-check", action="store_true", help="publier même si les contrôles échouent (exceptionnel)")
     ap.add_argument("--list", action="store_true")
     a = ap.parse_args()
 
@@ -632,6 +699,21 @@ def main():
         size = write_json(a.out, {"format": 2, "generated": generated, "sources": sources, "boards": boards, "climbs": climbs})
         log(f"\nOK -> {a.out} ({size / 1e6:.1f} Mo, {len(boards)} boards, {len(climbs)} blocs)")
         return
+    # Contrôles : seulement les boards générées ; les blocs si générés sans limite
+    old = load_baseline(a.check_against) if a.check_against else None
+    problems = check_manifest(entries, old, full=a.boards == "all", climbs=bool(man) and a.limit == 0)
+    report = check_report(entries, old, problems)
+    if os.environ.get("GITHUB_STEP_SUMMARY"):
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
+            f.write(report)
+    if problems:
+        log("\nContrôles :\n" + "\n".join(f"  ✗ {p}" for p in problems))
+        if not a.no_check:
+            sys.exit("Génération arrêtée : données suspectes, rien n'est publié (relancer avec --no-check pour forcer).")
+        log("  --no-check : publication malgré les problèmes")
+    elif old:
+        log(f"\nContrôles OK par rapport au manifeste du {old.get('generated', '?')}")
+
     index_path = os.path.join(a.out_dir, "index.json")
     if a.boards != "all" and os.path.exists(index_path):            # mise à jour partielle : on fusionne
         old = json.load(open(index_path, encoding="utf-8"))
