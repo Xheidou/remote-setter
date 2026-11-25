@@ -1,6 +1,15 @@
 // Données : manifeste, géométrie et blocs de chaque board, chargés à la demande depuis public/data/
 // (fichiers produits par scripts/build_board_data.py), plus l'import d'un fichier JSON personnalisé.
+//
+// Blocs d'une board : deux sortes de sources.
+//  - « découpée » (données générées) : climbs/<board>/a<angle>.json pour la liste à un angle, all.json pour
+//    tous les blocs (filtre « jamais faits à cet angle »), d/<n>.json pour le détail (prises, stats à tous les
+//    angles). Format décrit dans scripts/build_board_data.py (split_climbs). Les ids sont raccourcis au plus
+//    petit préfixe unique (desc.idLen) : climbKey() ramène un id complet (anciens liens, favoris) à cet id court.
+//  - « en mémoire » : ancien fichier unique, fichier importé, blocs d'exemple.
+// Dans les deux cas un bloc est un objet unique par id : les stats de chaque angle chargé et les prises s'y ajoutent.
 import {ROLES, TYPES, DIRS} from './config.js';
+import {GRADES, profileFromCounts} from './ui/filters.js';
 
 const BASE = (import.meta.env?.BASE_URL ?? './') + 'data/';
 
@@ -8,12 +17,12 @@ export const store = {
   manifest: null,          // contenu de data/index.json (sources, date, liste des boards)
   meta: new Map(),         // id -> {id, name, maker, geometry, climbs, ...} dans l'ordre du manifeste
   boards: new Map(),       // id -> géométrie normalisée (chargée à la demande)
-  climbs: new Map(),       // id -> liste de blocs (chargée à la demande)
+  climbs: new Map(),       // id -> source de blocs (voir plus haut), ouverte à la demande
   pending: new Map()       // requêtes en cours (évite les doublons)
 };
 
-async function getJSON(path) {
-  const r = await fetch(BASE + path);
+async function getJSON(path, init) {
+  const r = await fetch(BASE + path, init);
   if (!r.ok) throw new Error(`${path} : HTTP ${r.status}`);
   return r.json();
 }
@@ -25,7 +34,7 @@ function once(key, fn) {
 /* ---------- Manifeste ---------- */
 export async function loadManifest() {
   try {
-    const m = await getJSON('index.json');
+    const m = await getJSON('index.json', {cache: 'no-cache'});   // toujours à jour : il décrit les paquets
     store.manifest = m;
     for (const b of m.boards || []) store.meta.set(b.id, b);
     if (!store.meta.size) throw new Error('aucune board dans le manifeste');
@@ -35,7 +44,7 @@ export async function loadManifest() {
     const b = fallbackBoard();
     store.meta.set(b.id, {id: b.id, name: b.name, maker: b.maker});
     store.boards.set(b.id, b);
-    store.climbs.set(b.id, sampleClimbs(b));
+    store.climbs.set(b.id, memSource(sampleClimbs(b)));
     return {ok: false, error: err.message};
   }
 }
@@ -52,22 +61,128 @@ export function loadBoard(id) {
     return b;
   });
 }
-export function loadClimbs(id) {
-  if (store.climbs.has(id)) return Promise.resolve(store.climbs.get(id));
-  const meta = store.meta.get(id);
+
+/* ---------- Blocs ---------- */
+const memSource = list => ({mem: true, list, byId: new Map(list.map(c => [c.id, c]))});
+const splitSource = (board, desc) => ({mem: false, board, desc, byId: new Map(), angles: new Map(), all: null, chunks: new Map()});
+const splitPath = (src, file) => `${src.desc.dir}${file}?v=${encodeURIComponent(src.desc.v || '')}`;
+
+// Prépare les blocs d'une board (géométrie chargée avant) ; ne télécharge rien pour une source découpée
+export function openClimbs(id) {
   return once('c:' + id, async () => {
     const b = await loadBoard(id);
-    let list = [];
-    if (meta && meta.climbs) {
-      try { list = ((await getJSON(meta.climbs)).climbs || []).filter(c => Array.isArray(c.holds)).map(c => cleanClimb({...c, board: id})); }
-      catch (err) { console.warn('Blocs indisponibles pour', id, err); }
+    let src = store.climbs.get(id);
+    if (!src) {
+      const meta = store.meta.get(id), d = meta && meta.climbs;
+      if (d && typeof d === 'object' && d.dir) src = splitSource(id, d);
+      else {
+        let list = [];
+        if (typeof d === 'string') {                                   // ancien fichier unique climbs/<id>.json
+          try { list = ((await getJSON(d)).climbs || []).filter(c => Array.isArray(c.holds)).map(c => cleanClimb({...c, board: id})); }
+          catch (err) { console.warn('Blocs indisponibles pour', id, err); }
+        }
+        src = memSource(list.length ? list : sampleClimbs(b));        // pas de blocs : exemples posés sur les vraies prises
+      }
+      store.climbs.set(id, src);
     }
-    if (!list.length) list = sampleClimbs(b);       // pas encore de blocs : exemples posés sur les vraies prises
-    store.climbs.set(id, list);
-    return list;
+    if (src.mem && src.profFor !== b) { for (const c of src.list) delete c._prof; src.profFor = b; }   // géométrie remplacée par un import
+    return {mem: src.mem, count: src.mem ? src.list.length : src.desc.count};
   });
 }
-export const climbsOf = id => store.climbs.get(id) || [];
+const source = id => { const s = store.climbs.get(id); if (!s) throw new Error(`blocs non ouverts : ${id}`); return s; };
+
+// Id du bloc tel que l'utilise la board (id court pour une source découpée)
+export function climbKey(id, climbId) {
+  const s = store.climbs.get(id), n = s && !s.mem && s.desc.idLen;
+  return n ? String(climbId).slice(0, n) : String(climbId);
+}
+
+// Les blocs à l'angle a sont-ils déjà en mémoire ? (all : tous les blocs, y compris jamais faits à cet angle)
+export function hasClimbsAt(id, a, all = false) {
+  const s = store.climbs.get(id);
+  return !!s && (s.mem || (s.angles.has(a) && (!all || !!s.all)));
+}
+
+// Blocs à considérer à l'angle a : ceux grimpés à cet angle, ou tous (all). Une source en mémoire rend toute sa liste.
+export async function climbsAt(id, a, all = false) {
+  const s = source(id);
+  if (s.mem) return s.list;
+  if (!s.angles.has(a)) {
+    const list = String(a) in (s.desc.angles || {})
+      ? await once(`a:${id}:${a}`, async () => decodeList(s, await getJSON(splitPath(s, `a${a}.json`))))
+      : [];
+    s.angles.set(a, list);
+  }
+  if (!all) return s.angles.get(a);
+  if (!s.all) s.all = await once('all:' + id, async () => decodeList(s, await getJSON(splitPath(s, 'all.json'))));
+  return s.all;
+}
+
+// Bloc complet (prises, stats à tous les angles), ou null s'il n'existe pas. Accepte un id complet ou court.
+export async function loadClimb(id, climbId) {
+  const s = source(id), key = climbKey(id, climbId);
+  if (s.mem) return s.byId.get(key) || null;
+  const c = s.byId.get(key);
+  if (c && c.holds) return c;
+  const n = chunkOf(key, s.desc.chunks);
+  if (!s.chunks.has(n)) {
+    await once(`d:${id}:${n}`, async () => { decodeDetail(s, await getJSON(splitPath(s, `d/${n}.json`))); s.chunks.set(n, true); });
+  }
+  const d = s.byId.get(key);
+  return d && d.holds ? d : null;
+}
+
+// Paquet de détail d'un bloc : FNV-1a 32 bits de l'id court (même calcul que fnv1a() dans le script)
+export function chunkOf(key, n) {
+  let h = 0x811c9dc5;
+  for (const b of new TextEncoder().encode(key)) h = Math.imul(h ^ b, 0x01000193) >>> 0;
+  return h % Math.max(1, n || 1);
+}
+
+/* ---------- Décodage des fichiers découpés ---------- */
+const GRADE_LABEL = new Map(GRADES.map(([d, f, v]) => [d, `${f}/${v}`]));
+const TYPE_CODE = {e: 'edge', j: 'jug', s: 'sloper', p: 'pinch', o: 'pocket', v: 'volume', f: 'foot_chip'};
+export function decodeProf(code) {
+  const counts = {};
+  for (const [, k, n] of String(code || '').matchAll(/([a-z])(\d+)/g)) if (TYPE_CODE[k]) counts[TYPE_CODE[k]] = +n;
+  return profileFromCounts(counts);
+}
+function liteClimb(s, id, name, setter, prof) {
+  let c = s.byId.get(id);
+  if (!c) {
+    c = {id, board: s.board, name: name ? String(name) : 'Sans nom', setter: setter ? String(setter) : '',
+      grade: '', angle: null, ascents: 0, stats: [], holds: null, sample: false};
+    s.byId.set(id, c);
+  }
+  if (prof != null && !c._prof) c._prof = decodeProf(prof);
+  return c;
+}
+// Ligne de stats du fichier [angle, d×10, répétitions, note×10, benchmark] -> format de cleanClimb
+function addStat(c, [a, d, asc, q, b]) {
+  const diff = d == null ? null : d / 10;
+  const row = [+a, diff == null ? '' : GRADE_LABEL.get(Math.round(diff)) || '', +asc || 0, q == null ? null : q / 10, diff, b ? 1 : 0];
+  const k = c.stats.findIndex(x => x[0] === row[0]);
+  if (k >= 0) c.stats[k] = row; else { c.stats.push(row); c.stats.sort((x, y) => x[0] - y[0]); }
+  const main = c.stats.reduce((m, x) => x[2] > m[2] ? x : m);   // angle le plus répété
+  c.grade = main[1]; c.angle = main[0]; c.ascents = c.stats.reduce((t, x) => t + x[2], 0);
+}
+export function decodeList(s, f) {
+  const out = [], n = (f.id || []).length, bench = new Set(f.bench || []), hasAngle = f.angle != null;
+  for (let i = 0; i < n; i++) {
+    const c = liteClimb(s, String(f.id[i]), f.name[i], f.setters[f.setter[i]], f.prof ? f.prof[i] : null);
+    if (hasAngle) addStat(c, [f.angle, f.d[i], f.asc[i], f.q[i], bench.has(i)]);
+    out.push(c);
+  }
+  return out;
+}
+export function decodeDetail(s, f) {
+  for (const [id, [name, setter, holds, stats]] of Object.entries(f)) {
+    const c = liteClimb(s, id, name, setter, null);
+    c.name = name ? String(name) : c.name; c.setter = setter ? String(setter) : c.setter;
+    c.holds = (holds || []).map(([i, r]) => [+i, ROLES[r] ? r : 'hand']);
+    for (const st of stats || []) addStat(c, st);
+  }
+}
 
 /* ---------- Normalisation ---------- */
 export function validBoard(b) {
@@ -121,8 +236,8 @@ export async function importData(data) {
   const byBoard = new Map();
   for (const c of climbs) { if (!byBoard.has(c.board)) byBoard.set(c.board, []); byBoard.get(c.board).push(c); }
   for (const id of byBoard.keys()) await loadBoard(id);
-  for (const [id, list] of byBoard) store.climbs.set(id, list);
-  for (const b of nb) if (!byBoard.has(b.id)) store.climbs.set(b.id, sampleClimbs(b));
+  for (const [id, list] of byBoard) store.climbs.set(id, memSource(list));
+  for (const b of nb) if (!byBoard.has(b.id)) store.climbs.set(b.id, memSource(sampleClimbs(b)));
   return {boards: nb.length, climbs: climbs.length, reused, noShape: nb.filter(b => !nOut(b)).map(b => b.name),
     first: nb.length ? nb[0].id : (climbs[0] ? climbs[0].board : null)};
 }

@@ -4,7 +4,7 @@ import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls.js';
 import {ROLES, TYPES, DIRS, fmt, nf} from './config.js';
 import {holdGeometry, ringGeometry} from './holds/geometry.js';
 import {MAT, EYE, ROOM, buildRoom, finishTex, textSprite, matArea, steel, steelLight} from './scene/room.js';
-import {store, loadManifest, loadBoard, loadClimbs, climbsOf, boardList, importData} from './data.js';
+import {store, loadManifest, loadBoard, openClimbs, climbsAt, hasClimbsAt, loadClimb, climbKey, boardList, importData} from './data.js';
 import {GRADES, GMIN, GMAX, TYPE_ORDER, view, holdProfile, filterClimbs, defaultFilters, activeCount, SORTS} from './ui/filters.js';
 
 const $ = id => document.getElementById(id);
@@ -47,6 +47,15 @@ function savePrefs() {
   saveTimer = setTimeout(() => { try { prefs.favs = [...favs]; localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch { /* stockage indisponible */ } }, 250);
 }
 const boardPrefs = id => (prefs.boards[id] = prefs.boards[id] || {});
+// Favoris de la board courante, ramenés à ses ids (courts pour les blocs découpés ; anciens favoris = ids complets)
+let boardFavs = new Set();
+const syncFavs = () => { boardFavs = state.board ? new Set([...favs].map(f => climbKey(state.board.id, f))) : new Set(); };
+const isFav = c => boardFavs.has(c.id);
+function toggleFav(c) {
+  if (isFav(c)) { for (const f of [...favs]) if (climbKey(c.board, f) === c.id) favs.delete(f); }
+  else favs.add(c.id);
+  syncFavs(); savePrefs();
+}
 
 const state = {finish: prefs.finish || 'noir', board: null, climb: null, angle: 40, kicker: 0.46, view: 'face',
   dim: prefs.dim !== false, byType: !!prefs.byType};
@@ -302,11 +311,30 @@ function syncFilterUI() {
 }
 
 const PAGE = 60;
-let results = [], shown = 0, resultsRaf = 0;
-function scheduleResults() { cancelAnimationFrame(resultsRaf); resultsRaf = requestAnimationFrame(computeResults); }
-function computeResults() {
+let results = [], shown = 0, resultsRaf = 0, resultsTimer = 0, resultsSeq = 0;
+// Liste déjà en mémoire : au prochain affichage ; sinon on attend un peu (curseur d'angle qu'on fait glisser)
+function scheduleResults() {
+  cancelAnimationFrame(resultsRaf); clearTimeout(resultsTimer);
   if (!state.board) return;
-  results = filterClimbs(climbsOf(state.board.id), state.angle, F, typeOf, favs);
+  if (hasClimbsAt(state.board.id, state.angle, F.unclimbed)) resultsRaf = requestAnimationFrame(computeResults);
+  else { $('count').textContent = 'Chargement…'; resultsTimer = setTimeout(computeResults, 200); }
+}
+async function computeResults() {
+  cancelAnimationFrame(resultsRaf); clearTimeout(resultsTimer);
+  if (!state.board) return;
+  const seq = ++resultsSeq, id = state.board.id, a = state.angle;
+  let list;
+  if (!hasClimbsAt(id, a, F.unclimbed)) $('count').textContent = 'Chargement…';
+  try { list = await climbsAt(id, a, F.unclimbed); }
+  catch (err) {
+    if (seq !== resultsSeq) return;
+    results = []; $('list').textContent = ''; $('moreRes').hidden = true;
+    $('count').textContent = 'Blocs indisponibles'; $('list').appendChild(el('p', 'empty', `Chargement impossible (${err.message}).`));
+    return;
+  }
+  // une demande plus récente a pris le relais, ou l'angle / la board ont changé pendant le chargement
+  if (seq !== resultsSeq || !state.board || state.board.id !== id || state.angle !== a) return;
+  results = filterClimbs(list, a, F, typeOf, boardFavs);
   shown = 0; $('list').textContent = '';
   $('count').textContent = `${nf.format(results.length)} bloc${results.length > 1 ? 's' : ''} à ${state.angle}°`;
   syncFilterUI();
@@ -323,13 +351,14 @@ function renderMore() {
     row.setAttribute('aria-current', String(state.climb === c));
     const name = el('span', 'rname', c.name);
     if (v.bench) name.append(el('span', 'bench', bw));
-    if (favs.has(c.id)) name.append(el('span', 'fav', '♥'));
+    if (isFav(c)) name.append(el('span', 'fav', '♥'));
     const grade = el('span', 'rgrade', v.here ? shortGrade(v.grade) : '—');
     const meta = el('span', 'rmeta', [v.here ? `${nf.format(v.asc)} répét.` : `jamais fait à ${state.angle}°`,
       v.q != null ? `★ ${fmt(v.q, 1)}` : '', c.setter, c.sample ? 'exemple' : ''].filter(Boolean).join(' · '));
     const badges = el('span', 'rbadges'); badges.append(...typeBadges(holdProfile(c, typeOf), 3));
     row.append(name, grade, meta, badges);
     row.addEventListener('click', () => selectClimb(c));
+    row.addEventListener('pointerenter', () => { if (!c.holds) loadClimb(c.board, c.id).catch(() => {}); }, {once: true});   // détail préchargé au survol
     frag.appendChild(row);
   }
   shown += PAGE; $('list').appendChild(frag);
@@ -362,7 +391,7 @@ function renderFiche() {
     b.addEventListener('click', () => applyAngle(s[0])); an.appendChild(b);
   }
   an.hidden = !an.children.length;
-  const fav = favs.has(c.id);
+  const fav = isFav(c);
   $('aFav').setAttribute('aria-pressed', String(fav)); $('aFav').textContent = fav ? '♥ Dans vos favoris' : '♡ Ajouter aux favoris';
 }
 
@@ -377,9 +406,18 @@ function parseHash() {
   return {board: b || null, climb: c ? decodeURIComponent(c) : null, angle: a && !isNaN(+a) ? +a : null};
 }
 
-function selectClimb(c) {
+// Le détail (prises) d'un bloc découpé est chargé avant de l'afficher ; une sélection plus récente annule celle-ci
+let climbSeq = 0;
+async function selectClimb(c) {
+  const seq = ++climbSeq;
+  if (c && !c.holds) {
+    try { c = (await loadClimb(c.board, c.id)) || c; } catch (err) { console.warn('Détail du bloc indisponible', err); }
+    if (seq !== climbSeq || !state.board || c.board !== state.board.id) return;   // autre bloc ou autre board entre-temps
+    if (!c.holds) { $('msg').textContent = `Détail du bloc « ${c.name} » indisponible.`; return; }
+  }
   state.climb = c; paintClimb(); renderFiche(); markCurrent(); updateHash();
 }
+const findClimb = (board, id) => loadClimb(board, id).catch(err => { console.warn('Bloc introuvable', id, err); return null; });
 
 // Chargement à la demande de la géométrie et des blocs ; une sélection plus récente annule la précédente
 let selectSeq = 0;
@@ -387,12 +425,11 @@ async function selectBoard(id, want = {}) {
   const seq = ++selectSeq;
   $('board').value = id;
   $('bName').textContent = 'Chargement…'; $('count').textContent = '—';
-  let b, list;
-  try { b = await loadBoard(id); list = await loadClimbs(id); }
+  let b;
+  try { b = await loadBoard(id); await openClimbs(id); }
   catch (err) { if (seq === selectSeq) { $('bName').textContent = 'Board indisponible'; $('bMeta').textContent = err.message; } return; }
   if (seq !== selectSeq) return;
-  if (list._profFor !== b) { for (const c of list) delete c._prof; list._profFor = b; }
-  state.board = b; state.climb = null;
+  state.board = b; state.climb = null; syncFavs();
   prefs.board = id; savePrefs();
   $('boardNote').textContent = [b.note, b.approx].filter(Boolean).join(' · ');
   buildBoard(b); angleUI(b);
@@ -400,10 +437,10 @@ async function selectBoard(id, want = {}) {
   kickerUI(b, bp.kicker);
   renderBoardSummary();
   applyAngle(want.angle ?? bp.angle ?? b.angles.def);
-  computeResults();
-  const target = (want.climb && list.find(c => c.id === want.climb)) || (results[0] && results[0].c) || null;
-  selectClimb(target);
   goView(state.view, true);
+  const [, wanted] = await Promise.all([computeResults(), want.climb ? findClimb(id, want.climb) : null]);
+  if (seq !== selectSeq) return;
+  await selectClimb(wanted || (results[0] && results[0].c) || null);
 }
 
 function renderDataInfo() {
@@ -539,9 +576,9 @@ $('moreRes').addEventListener('click', renderMore);
 
 $('aFav').addEventListener('click', () => {
   const c = state.climb; if (!c) return;
-  favs.has(c.id) ? favs.delete(c.id) : favs.add(c.id); savePrefs(); renderFiche();
+  toggleFav(c); renderFiche();
   const row = [...$('list').children].find(r => r.dataset.id === c.id);
-  if (row) { const n = row.querySelector('.rname'); const f = n.querySelector('.fav'); if (favs.has(c.id) && !f) n.append(el('span', 'fav', '♥')); else if (!favs.has(c.id) && f) f.remove(); }
+  if (row) { const n = row.querySelector('.rname'); const f = n.querySelector('.fav'); if (isFav(c) && !f) n.append(el('span', 'fav', '♥')); else if (!isFav(c) && f) f.remove(); }
   if (F.favOnly) computeResults();
 });
 $('aShare').addEventListener('click', async () => {
@@ -565,12 +602,16 @@ $('tType').addEventListener('click', () => {
   }
 }
 for (const bt of document.querySelectorAll('[data-view]')) bt.addEventListener('click', () => goView(bt.dataset.view));
-window.addEventListener('hashchange', () => {
+window.addEventListener('hashchange', async () => {
   const h = parseHash();
   if (h.board && h.board !== (state.board && state.board.id)) selectBoard(h.board, h);
   else if (state.board) {
+    const id = state.board.id;
     if (h.angle != null && h.angle !== state.angle) applyAngle(h.angle);
-    if (h.climb && (!state.climb || state.climb.id !== h.climb)) { const c = climbsOf(state.board.id).find(x => x.id === h.climb); if (c) selectClimb(c); }
+    if (h.climb && (!state.climb || state.climb.id !== climbKey(id, h.climb))) {
+      const c = await findClimb(id, h.climb);
+      if (c && state.board && state.board.id === id) selectClimb(c);
+    }
   }
 });
 

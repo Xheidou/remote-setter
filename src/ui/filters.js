@@ -31,14 +31,18 @@ export function view(c, a) {
 export function holdProfile(c, typeOf) {
   if (c._prof) return c._prof;
   const counts = {};
-  for (const [id, role] of c.holds) {
+  for (const [id, role] of c.holds || []) {
     if (!HAND_ROLES.has(role)) continue;
     const t = typeOf(id);
     if (TYPES[t]) counts[t] = (counts[t] || 0) + 1;
   }
+  return (c._prof = profileFromCounts(counts));
+}
+// Type dominant : le plus fréquent, à égalité le premier dans TYPE_ORDER
+export function profileFromCounts(counts) {
   let dom = '', best = 0;
   for (const t of TYPE_ORDER) if ((counts[t] || 0) > best) { best = counts[t]; dom = t; }
-  return (c._prof = {counts, dom});
+  return {counts, dom};
 }
 
 // Tri « recommandés » : répétitions pondérées par la note (note absente comptée 3/5)
