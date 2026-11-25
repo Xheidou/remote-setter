@@ -164,23 +164,50 @@ main{position:relative;overflow:hidden;background:var(--scene)}
 .froles i{width:9px;height:9px;border-radius:50%;display:inline-block;margin-left:4px}
 .err{position:absolute;inset:0;display:grid;place-items:center;padding:24px;text-align:center;color:var(--muted)}
 
+/* Éléments propres au téléphone, masqués sur grand écran */
+.mbar,.mhead,.scrim,.ftoggle,.views .sm{display:none}
+/* Fiche : ligne style + navigation dans la liste, détail */
+.fline{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:34px}
+.fnav{display:flex;gap:4px;margin-left:auto}
+.fnav button{font:600 15px Barlow,sans-serif;min-width:36px;min-height:34px;padding:2px 8px;border-radius:8px;border:1px solid var(--line);background:var(--soft);color:var(--ink);cursor:pointer}
+.fnav button:disabled{opacity:.4;cursor:default}
+.ftoggle::after{content:"▴"}.ftoggle[aria-expanded=false]::after{content:"▾"}
+.fdetail{display:flex;flex-direction:column;gap:8px}
+
 @media(max-width:1100px){ .fiche{width:min(400px,calc(100% - 28px))} }
+/* Téléphone : la board en plein écran ; « Ma board » et « Blocs » s'ouvrent en feuilles depuis la barre du haut */
 @media(max-width:760px){
-  body{grid-template-columns:minmax(0,1fr);grid-template-rows:auto auto;height:auto}
-  main{grid-row:1;display:flex;flex-direction:column;overflow:visible;background:var(--bg)}
-  aside{grid-row:2;border-right:0;border-top:1px solid var(--line);overflow:visible}
-  aside h1{display:none}
-  .boardcard{position:static;width:auto;max-height:none;margin:8px 8px 0;background:var(--panel);backdrop-filter:none}
-  .bname{font-size:19px}
-  .dims{gap:12px;padding-bottom:10px}
-  .stage{position:relative;inset:auto;height:56vh;margin-top:8px;background:var(--scene)}
-  .toolbar{left:8px;right:8px;top:auto;bottom:8px;max-width:none;flex-direction:row;flex-wrap:wrap;align-items:flex-end;justify-content:space-between}
+  body{display:block;height:100dvh;overflow:hidden}
+  main{position:fixed;inset:0}
+  .stage{position:absolute;inset:0}
+  .views .lg{display:none}.views .sm{display:inline}
+  .mbar{display:flex;gap:8px;position:absolute;z-index:3;left:8px;right:8px;top:calc(8px + env(safe-area-inset-top))}
+  .mbtn{display:inline-flex;align-items:center;gap:8px;min-height:46px;padding:6px 12px;border-radius:10px;border:1px solid var(--line);background:color-mix(in srgb,var(--panel) 90%,transparent);backdrop-filter:blur(8px);color:var(--ink);font:600 15px Barlow,sans-serif;cursor:pointer;white-space:nowrap}
+  .mboard{flex:1;min-width:0}
+  .mbname{font:700 18px/1.1 "Barlow Condensed",sans-serif;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  .mang{margin-left:auto;font:700 18px/1 "Barlow Condensed",sans-serif;color:var(--accent-ink);font-variant-numeric:tabular-nums}
+  .toolbar{top:calc(62px + env(safe-area-inset-top));left:8px;right:8px;max-width:none;flex-direction:row;flex-wrap:wrap;justify-content:space-between;align-items:flex-start}
   .views{flex-wrap:nowrap}
   .views button{min-height:36px;padding:4px 10px;font-size:14px;white-space:nowrap}
-  .legendcard{order:-1;flex-basis:100%;max-width:none;padding:6px 10px}
-  .navhint{right:8px;left:8px;top:8px;bottom:auto;max-width:none}
-  #info{right:8px;left:8px;top:8px;bottom:auto;max-width:none}
-  .fiche{position:static;width:auto;margin:8px;background:var(--panel);backdrop-filter:none}
+  .legendcard{flex-basis:100%;max-width:none;padding:6px 10px}
+  .navhint,#info{left:8px;right:8px;top:calc(108px + env(safe-area-inset-top));bottom:auto;max-width:none}
+  .fiche{left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom));width:auto;max-height:62dvh;overflow-y:auto;padding:10px 12px;gap:6px}
   .card h3{font-size:20px}
+  .fgrade{font-size:20px}
+  .ftoggle{display:inline-flex;align-items:center;gap:4px}
+  .fiche:not(.open) .fdetail{display:none}
+  /* Feuilles */
+  .scrim{display:block;position:fixed;inset:0;z-index:20;background:rgba(8,10,12,.45)}
+  .mhead{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .mhead h2{font:700 24px/1.1 "Barlow Condensed",sans-serif}
+  aside{display:none;position:fixed;inset:0;z-index:21;border:0;padding:0 16px calc(24px + env(safe-area-inset-bottom));overflow-y:auto;gap:12px}
+  aside h1{display:none}
+  aside .mhead{position:sticky;top:0;z-index:1;background:var(--panel);padding:calc(12px + env(safe-area-inset-top)) 0 10px;border-bottom:1px solid var(--line)}
+  body[data-sheet=blocs] aside{display:flex}
+  .boardcard{display:none;position:fixed;z-index:21;left:0;right:0;bottom:0;top:auto;width:auto;max-height:88dvh;border-radius:14px 14px 0 0;border-width:1px 0 0;background:var(--panel);backdrop-filter:none;padding-bottom:env(safe-area-inset-bottom);box-shadow:0 -8px 32px rgba(0,0,0,.3)}
+  body[data-sheet=board] .boardcard{display:block}
+  .boardcard .mhead{padding:14px 14px 4px}
+  .boardsum{pointer-events:none;padding-top:4px}.bedit{display:none}
+  .boardcard .boardedit[hidden]{display:block!important}
   .sheet{inset:auto 0 0 0;width:100%;height:auto;max-height:88dvh;border-right:0;border-radius:14px 14px 0 0;box-shadow:0 -8px 32px rgba(0,0,0,.3)}
 }

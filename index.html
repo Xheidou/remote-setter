@@ -11,9 +11,14 @@
 <link rel="stylesheet" href="/src/style.css">
 </head>
 <body>
-<!-- Panneau : uniquement les blocs (la board et ses réglages sont sur la scène) -->
-<aside>
+<!-- Panneau : uniquement les blocs (la board et ses réglages sont sur la scène).
+     Sur téléphone : feuille plein écran ouverte par le bouton « Blocs » -->
+<aside id="blocsPanel" aria-label="Blocs">
   <h1>Board 3D</h1>
+  <div class="mhead">
+    <h2>Blocs</h2>
+    <button type="button" class="xbtn" id="blocsClose" aria-label="Fermer la recherche">✕</button>
+  </div>
 
   <section class="blocs" aria-labelledby="zFind">
     <h2 class="sr-only" id="zFind">Blocs</h2>
@@ -48,8 +53,25 @@
 </aside>
 
 <main>
-  <!-- Ma board : modèle, angle (toujours visible), cotes ; réglages dépliables -->
-  <section class="card boardcard" aria-label="Ma board">
+  <!-- Téléphone : la board en plein écran, deux boutons ouvrent ses réglages et la recherche -->
+  <div class="mbar">
+    <button type="button" class="mbtn mboard" id="mBoard" aria-controls="boardCard" aria-expanded="false">
+      <span class="mbname" id="mBoardName">Chargement…</span><span class="mang" id="mAngle">40°</span>
+      <svg viewBox="0 0 20 20" width="14" height="14" aria-hidden="true"><path d="M5 8l5 5 5-5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></svg>
+    </button>
+    <button type="button" class="mbtn" id="mBlocs" aria-controls="blocsPanel" aria-expanded="false">
+      <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor" stroke-width="2" fill="none"/><path d="M13 13l4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      Blocs <span class="fcount" id="mCount" hidden></span>
+    </button>
+  </div>
+  <div class="scrim" id="scrim" hidden></div>
+
+  <!-- Ma board : modèle, angle (toujours visible), cotes ; réglages dépliables. Téléphone : feuille du bas -->
+  <section class="card boardcard" id="boardCard" aria-label="Ma board">
+    <div class="mhead">
+      <h2>Ma board</h2>
+      <button type="button" class="xbtn" id="boardClose" aria-label="Fermer les réglages">✕</button>
+    </div>
     <button type="button" class="boardsum" id="boardSum" aria-expanded="false" aria-controls="boardEdit">
       <span class="bname" id="bName">Chargement…</span>
       <span class="bmeta" id="bMeta"></span>
@@ -91,8 +113,8 @@
         <button type="button" data-view="climb" id="vClimb" aria-pressed="false" disabled title="Cadrer les prises du bloc">Bloc</button>
       </div>
       <div class="views" role="group" aria-label="Affichage des prises">
-        <button type="button" id="tDim" aria-pressed="true">Atténuer les autres</button>
-        <button type="button" id="tType" aria-pressed="false">Couleur par type</button>
+        <button type="button" id="tDim" aria-pressed="true"><span class="lg">Atténuer les autres</span><span class="sm">Atténuer</span></button>
+        <button type="button" id="tType" aria-pressed="false"><span class="lg">Couleur par type</span><span class="sm">Par type</span></button>
       </div>
       <div class="card legendcard" id="typeLegend" hidden></div>
     </div>
@@ -106,14 +128,23 @@
       <h3 id="fName"></h3>
       <span class="fgrade" id="fGrade"></span>
     </div>
+    <div class="fline">
+      <div class="fstyle" id="fStyle"></div>
+      <div class="fnav">
+        <button type="button" id="fPrev" aria-label="Bloc précédent de la liste">‹</button>
+        <button type="button" id="fNext" aria-label="Bloc suivant de la liste">›</button>
+        <button type="button" class="ftoggle" id="fToggle" aria-expanded="false" aria-controls="fDetail">Détails</button>
+      </div>
+    </div>
+    <div class="fdetail" id="fDetail">
     <p class="fmeta" id="fMeta"></p>
-    <div class="fstyle" id="fStyle"></div>
     <div class="fangles" id="fAngles" role="group" aria-label="Cotation selon l'angle"></div>
     <div class="allangles" id="fAllAngles" hidden></div>
     <div class="factions">
       <button type="button" id="aShare">Copier le lien</button>
       <button type="button" id="aFav" aria-pressed="false">Ajouter aux favoris</button>
       <span class="froles"><i style="background:#22c55e"></i>départ <i style="background:#06b6d4"></i>main <i style="background:#d946ef"></i>top <i style="background:#f59e0b"></i>pied</span>
+    </div>
     </div>
   </div>
 </main>

@@ -28,7 +28,7 @@ const camera = new THREE.PerspectiveCamera(48, 1, 0.05, 120);
 camera.position.set(0, 2, 7);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true; controls.dampingFactor = 0.08;
-controls.maxPolarAngle = Math.PI * 0.495; controls.minDistance = 0.4; controls.maxDistance = 11;
+controls.maxPolarAngle = Math.PI * 0.75; controls.minDistance = 0.4; controls.maxDistance = 11;   // vers le haut permis (dévers) ; caméra au-dessus de 0,5 m (boucle)
 controls.target.set(0, 1.8, 0.6);
 
 scene.add(new THREE.HemisphereLight(0xfff8ee, 0x4a4540, 0.55));
@@ -252,7 +252,7 @@ function setAngle(a) {
   state.angle = a;
   panelG.rotation.x = THREE.MathUtils.degToRad(a);
   updateStruts(); updateBounds(); reframe(); invalidate();
-  $('angleOut').textContent = a + '°';
+  $('angleOut').textContent = a + '°'; $('mAngle').textContent = a + '°';
   updateDims(); clearMeasure();
   boardPrefs(state.board.id).angle = a; savePrefs();
   scheduleResults(); renderFiche(); updateHash();
@@ -292,7 +292,40 @@ function renderBoardSummary() {
   const b = state.board; if (!b) return;
   $('bName').textContent = b.name;
   $('bMeta').textContent = `kicker ${fmt(state.kicker)} m · ${FINISH[state.finish] || ''}`;
+  $('mBoardName').textContent = b.name;
 }
+/* ---------- Téléphone : feuilles « Ma board » et « Blocs » ---------- */
+// La board est la page principale ; chaque feuille ajoute une entrée d'historique : le bouton retour la ferme.
+const mq = matchMedia('(max-width: 760px)');
+let sheetOpen = null, skipHash = false;
+function openSheet(name) {
+  if (!mq.matches || sheetOpen === name) return;
+  if (sheetOpen) hideSheet(); else history.pushState({sheet: name}, '', location.href);
+  sheetOpen = name; document.body.dataset.sheet = name; $('scrim').hidden = false;
+  $('mBoard').setAttribute('aria-expanded', String(name === 'board')); $('mBlocs').setAttribute('aria-expanded', String(name === 'blocs'));
+  (name === 'board' ? $('boardClose') : $('q')).focus({preventScroll: true});
+}
+function hideSheet() {
+  if (!sheetOpen) return;
+  const was = sheetOpen; sheetOpen = null;
+  delete document.body.dataset.sheet; $('scrim').hidden = true;
+  $('mBoard').setAttribute('aria-expanded', 'false'); $('mBlocs').setAttribute('aria-expanded', 'false');
+  (was === 'board' ? $('mBoard') : $('mBlocs')).focus({preventScroll: true});
+  invalidate();
+}
+function closeSheet() {
+  if (!sheetOpen) return;
+  if (history.state && history.state.sheet) history.back(); else hideSheet();
+}
+// Retour arrière : on ferme la feuille et on garde le bloc et l'angle courants dans l'adresse
+window.addEventListener('popstate', () => {
+  if (!sheetOpen) return;
+  hideSheet();
+  const h = currentHash();
+  if (h && location.hash !== h) { skipHash = true; history.replaceState(history.state, '', h); }
+});
+mq.addEventListener('change', () => { if (!mq.matches) hideSheet(); relayout(); });
+
 function toggleBoardEdit(open) {
   const bt = $('boardSum'), box = $('boardEdit');
   const o = open == null ? box.hidden : open;
@@ -359,6 +392,7 @@ function syncFilterUI() {
   for (const b of $('fQ').children) b.setAttribute('aria-pressed', String(+b.dataset.v === F.minQ));
   $('fFav').checked = F.favOnly; $('fUnclimbed').checked = F.unclimbed;
   const n = activeCount(F); $('fCount').hidden = !n; $('fCount').textContent = n;
+  $('mCount').hidden = !n; $('mCount').textContent = n;
   const box = $('fActive'), chips = activeChips(); box.textContent = '';
   for (const [label, clear] of chips) {
     const b = el('button', 'achip'); b.type = 'button'; b.setAttribute('aria-label', `Retirer le filtre ${label}`);
@@ -421,7 +455,7 @@ function renderMore() {
     meta.append(el('span', 'txt', [v.here ? `${nf.format(v.asc)} répét.` : `jamais fait à ${state.angle}°`,
       v.q != null ? `★ ${fmt(v.q, 1)}` : '', c.setter, c.sample ? 'exemple' : ''].filter(Boolean).join(' · ')));
     row.append(name, grade, meta);
-    row.addEventListener('click', () => selectClimb(c));
+    row.addEventListener('click', () => { selectClimb(c); closeSheet(); });
     row.addEventListener('pointerenter', () => { if (!c.holds) loadClimb(c.board, c.id).catch(() => {}); }, {once: true});   // détail préchargé au survol
     frag.appendChild(row);
   }
@@ -443,7 +477,7 @@ function climbedAngles(c) { return (c.stats || []).filter(s => (s[2] || 0) > 0).
 function renderFiche() {
   const c = state.climb, box = $('fiche');
   $('vClimb').disabled = !(c && c.holds);
-  if (!c || !state.board) { box.hidden = true; return; }
+  if (!c || !state.board) { box.hidden = true; if (mq.matches) relayout(); return; }
   box.hidden = false;
   const v = view(c, state.angle), [, bw] = benchWord();
   $('fName').textContent = c.name;
@@ -477,15 +511,18 @@ function renderFiche() {
     r.append(el('span', null, `${s[0]}°`), el('span', null, shortGrade(s[1])), el('span', 'm', `${nf.format(s[2])} répét.`), el('span', 'm', s[3] != null ? `★ ${fmt(s[3], 1)}` : ''));
     r.addEventListener('click', () => applyAngle(s[0])); all.appendChild(r);
   }
+  const i = results.findIndex(r => r.c.id === c.id);
+  $('fPrev').disabled = i <= 0; $('fNext').disabled = !results.length || i >= results.length - 1;
+  if (mq.matches) relayout();
   const fav = isFav(c);
   $('aFav').setAttribute('aria-pressed', String(fav)); $('aFav').textContent = fav ? '♥ Dans vos favoris' : '♡ Ajouter aux favoris';
 }
 
 /* ---------- Liens partageables : #board/bloc/angle ---------- */
+const currentHash = () => state.board ? '#' + [state.board.id, state.climb ? encodeURIComponent(state.climb.id) : '', state.angle].join('/') : '';
 function updateHash() {
-  if (!state.board) return;
-  const h = '#' + [state.board.id, state.climb ? encodeURIComponent(state.climb.id) : '', state.angle].join('/');
-  if (location.hash !== h) history.replaceState(null, '', h);
+  const h = currentHash();
+  if (h && location.hash !== h) history.replaceState(history.state, '', h);
 }
 function parseHash() {
   const [b, c, a] = location.hash.replace(/^#\/?/, '').split('/');
@@ -556,7 +593,8 @@ function renderBoards() {
 // suit l'angle, le kicker et la taille de la fenêtre.
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const UP = new THREE.Vector3(0, 1, 0), MIN_EYE = 0.6, rad = THREE.MathUtils.degToRad;
-let tween = null, userMoved = false, viewInset = 0;
+let tween = null, userMoved = false;
+const inset = {L: 0, T: 0, B: 0, fullH: 1};
 function boardPoints() {
   const b = state.board, r = rad(state.angle), base = MAT + state.kicker, W = b.width / 2;
   const ty = base + b.panel * Math.cos(r), tz = b.panel * Math.sin(r);
@@ -611,8 +649,9 @@ function climbPoints(c) {
 }
 function frameOn(points, margin) {
   const c = new THREE.Box3().setFromPoints(points).getCenter(new THREE.Vector3());
-  const tv = Math.tan(rad(camera.fov / 2)), H = host.clientHeight || 1, W = host.clientWidth || 1;
-  const th = tv * Math.max(0.3, (W - viewInset) / H);
+  // demi-ouvertures (tangentes) de la zone libre de l'image, hors cartes et barres posées sur la scène
+  const H = host.clientHeight || 1, W = host.clientWidth || 1, tpp = Math.tan(rad(camera.fov / 2)) / (inset.fullH / 2);
+  const tv = tpp * Math.max(0.3 * H, H - inset.T - inset.B) / 2, th = tpp * Math.max(0.3 * W, W - inset.L) / 2;
   for (let e = -rad(state.angle); ; e += rad(2)) {
     const dir = new THREE.Vector3(0, Math.sin(e), Math.cos(e));               // de la cible vers la caméra
     const fwd = dir.clone().negate(), right = new THREE.Vector3().crossVectors(fwd, UP).normalize(), up = new THREE.Vector3().crossVectors(right, fwd);
@@ -640,15 +679,30 @@ function goView(v, instant) {
   startTween(f.pos, f.tgt, instant);
 }
 const reframe = () => { if (!userMoved && state.board) goView(state.view, true); };
-// Sur grand écran, la carte « Ma board » couvre le haut à gauche : le centre de l'image est décalé vers la droite
+// Le centre de l'image est celui de la zone libre : à droite de la carte « Ma board » sur grand écran,
+// entre la barre du haut et la fiche (réduite) sur téléphone
+let lastB = 0;
 function applyViewOffset() {
   const W = host.clientWidth, H = host.clientHeight; if (!W || !H) return;
-  const card = document.querySelector('.boardcard');
-  viewInset = innerWidth > 760 && card ? Math.min(W * 0.4, card.getBoundingClientRect().right - host.getBoundingClientRect().left + 8) : 0;
-  camera.aspect = (W + viewInset) / H;
-  if (viewInset) camera.setViewOffset(W + viewInset, H, 0, 0, W, H); else camera.clearViewOffset();
+  const hr = host.getBoundingClientRect();
+  inset.L = 0; inset.T = 0; inset.B = 0;
+  if (!mq.matches) inset.L = Math.min(W * 0.4, $('boardCard').getBoundingClientRect().right - hr.left + 8);
+  else {
+    inset.T = Math.max(0, document.querySelector('.toolbar').getBoundingClientRect().bottom - hr.top + 6);
+    const fi = $('fiche');
+    if (!fi.hidden && !fi.classList.contains('open')) lastB = Math.max(0, hr.bottom - fi.getBoundingClientRect().top + 6);
+    inset.B = fi.hidden ? 0 : lastB;
+  }
+  const dy = inset.T - inset.B;
+  inset.fullH = H + Math.abs(dy);
+  // écran en hauteur (téléphone) : champ élargi pour garder ~30° en largeur, sinon la caméra devrait reculer
+  // au-delà du mur de la salle pour voir toute la board
+  camera.fov = Math.min(72, Math.max(48, 2 * THREE.MathUtils.radToDeg(Math.atan(Math.tan(rad(15)) * inset.fullH / W))));
+  camera.aspect = (W + inset.L) / inset.fullH;
+  if (inset.L || dy) camera.setViewOffset(W + inset.L, inset.fullH, 0, dy < 0 ? -dy : 0, W, H); else camera.clearViewOffset();
   camera.updateProjectionMatrix();
 }
+const relayout = () => { applyViewOffset(); reframe(); invalidate(); };
 
 /* ---------- Navigation : comme une carte ---------- */
 // Glisser = se déplacer (le long de la board), molette ou pincement = zoom vers le pointeur,
@@ -831,6 +885,25 @@ $('fUnclimbed').addEventListener('change', e => { F.unclimbed = e.target.checked
 $('sort').addEventListener('change', e => { F.sort = e.target.value; computeResults(); });
 $('fReset').addEventListener('click', resetFilters);
 $('moreRes').addEventListener('click', renderMore);
+// Téléphone : feuilles, fiche réduite, bloc précédent / suivant
+$('mBoard').addEventListener('click', () => openSheet('board'));
+$('mBlocs').addEventListener('click', () => openSheet('blocs'));
+for (const id of ['boardClose', 'blocsClose', 'scrim']) $(id).addEventListener('click', closeSheet);
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && sheetOpen && !$('fSheet').open) closeSheet(); });
+$('fToggle').addEventListener('click', () => {
+  const open = $('fiche').classList.toggle('open');
+  $('fToggle').setAttribute('aria-expanded', String(open)); $('fToggle').textContent = open ? 'Réduire' : 'Détails';
+});
+const stepClimb = d => {
+  if (!state.climb || !results.length) return;
+  const i = results.findIndex(r => r.c.id === state.climb.id), j = i < 0 ? 0 : i + d;
+  if (j >= 0 && j < results.length) {
+    if (j >= shown) renderMore();
+    selectClimb(results[j].c);
+  }
+};
+$('fPrev').addEventListener('click', () => stepClimb(-1));
+$('fNext').addEventListener('click', () => stepClimb(1));
 
 $('aFav').addEventListener('click', () => {
   const c = state.climb; if (!c) return;
@@ -851,7 +924,7 @@ const setToggle = (id, on) => $(id).setAttribute('aria-pressed', String(on));
 $('tDim').addEventListener('click', () => { state.dim = !state.dim; prefs.dim = state.dim; savePrefs(); setToggle('tDim', state.dim); paintClimb(); });
 $('tType').addEventListener('click', () => {
   state.byType = !state.byType; prefs.byType = state.byType; savePrefs();
-  setToggle('tType', state.byType); $('typeLegend').hidden = !state.byType; paintClimb();
+  setToggle('tType', state.byType); $('typeLegend').hidden = !state.byType; paintClimb(); if (mq.matches) relayout();
 });
 {
   const lg = $('typeLegend');
@@ -861,6 +934,7 @@ $('tType').addEventListener('click', () => {
 }
 for (const bt of document.querySelectorAll('[data-view]')) bt.addEventListener('click', () => goView(bt.dataset.view));
 window.addEventListener('hashchange', async () => {
+  if (skipHash) { skipHash = false; return; }
   const h = parseHash();
   if (h.board && h.board !== (state.board && state.board.id)) selectBoard(h.board, h);
   else if (state.board) {
@@ -924,7 +998,7 @@ async function start() {
   renderDataInfo(); renderBoards();
   const h = parseHash(), ids = new Set(boardList().map(b => b.id));
   const id = (h.board && ids.has(h.board) && h.board) || (prefs.board && ids.has(prefs.board) && prefs.board) || boardList()[0].id;
-  if (!prefs.board && !h.board) toggleBoardEdit(true);       // première visite : choisir sa board
+  if (!prefs.board && !h.board) { if (mq.matches) openSheet('board'); else toggleBoardEdit(true); }   // première visite : choisir sa board
   await selectBoard(id, h.board === id ? h : {});
 }
 start();
