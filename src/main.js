@@ -4,9 +4,9 @@ import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls.js';
 import {ROLES, TYPES, DIRS, fmt, nf} from './config.js';
 import {holdGeometry, ringGeometry} from './holds/geometry.js';
 import {mergeHolds, paintHold, commitPaint, holdMaterial, pickHold} from './holds/merge.js';
-import {MAT, EYE, ROOM, buildRoom, finishTex, textSprite, matArea, faceBox, mergeStatic, steel, steelLight} from './scene/room.js';
+import {MAT, ROOM, buildRoom, finishTex, textSprite, matArea, faceBox, mergeStatic, steel, steelLight} from './scene/room.js';
 import {store, loadManifest, loadBoard, openClimbs, climbsAt, hasClimbsAt, loadClimb, climbKey, boardList, importData} from './data.js';
-import {GRADES, GMIN, GMAX, TYPE_ORDER, view, holdProfile, filterClimbs, defaultFilters, activeCount, SORTS} from './ui/filters.js';
+import {GMIN, GMAX, TYPE_ORDER, gradeFont, view, holdProfile, filterClimbs, defaultFilters, activeCount, SORTS} from './ui/filters.js';
 
 const $ = id => document.getElementById(id);
 const host = $('host');
@@ -62,7 +62,7 @@ function toggleFav(c) {
   syncFavs(); savePrefs();
 }
 
-const state = {finish: prefs.finish || 'noir', board: null, climb: null, angle: 40, kicker: 0.46, view: 'face',
+const state = {finish: prefs.finish || 'noir', board: null, climb: null, angle: 40, kicker: 0.46, view: 'board',
   dim: prefs.dim !== false, byType: !!prefs.byType};
 const F = defaultFilters();
 let boardG = null, panelG = null, kickerG = null, kickBox = null, ruler = null, struts = [];
@@ -176,7 +176,7 @@ function setKicker(K) {
   const top = MAT + K;
   kickerG.position.y = top; panelG.position.y = top;
   kickBox.scale.y = top; kickBox.position.set(0, -top / 2, -0.02);
-  updateStruts();
+  updateStruts(); updateBounds(); reframe();
   if (state.board) { boardPrefs(state.board.id).kicker = K; savePrefs(); renderBoardSummary(); }
   $('kOut').textContent = fmt(K) + ' m';
   updateDims(); clearMeasure();
@@ -251,7 +251,7 @@ function updateStruts() {
 function setAngle(a) {
   state.angle = a;
   panelG.rotation.x = THREE.MathUtils.degToRad(a);
-  updateStruts(); invalidate();
+  updateStruts(); updateBounds(); reframe(); invalidate();
   $('angleOut').textContent = a + '°';
   updateDims(); clearMeasure();
   boardPrefs(state.board.id).angle = a; savePrefs();
@@ -306,35 +306,72 @@ const shortGrade = g => (g || '').replace('/', ' · ');
 const dotColor = t => '#' + TYPES[t].color.toString(16).padStart(6, '0');
 const capital = w => w.charAt(0).toUpperCase() + w.slice(1);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-function typeBadges(prof, max) {
-  return Object.entries(prof.counts).sort((a, b) => b[1] - a[1]).slice(0, max).map(([t, n]) => {
-    const b = el('span', 'tbadge'), i = el('i'); i.style.background = dotColor(t);
-    b.append(i, `${n} ${n > 1 ? TYPES[t].plural : TYPES[t].label}`); return b;
-  });
+// Style principal d'un bloc : le type de prise de main dominant (sans compte)
+function styleBadge(prof) {
+  if (!prof || !TYPES[prof.dom]) return null;
+  const b = el('span', 'style'), i = el('i', 'dot'); i.style.background = dotColor(prof.dom);
+  b.append(i, capital(TYPES[prof.dom].plural)); b.title = `Style principal : ${TYPES[prof.dom].plural}`;
+  return b;
 }
 
+const STYLE_TYPES = TYPE_ORDER.filter(t => !['volume', 'foot_chip'].includes(t));
+const ASC_STEPS = [[0, 'Toutes'], [10, '10+'], [100, '100+'], [1000, '1 000+']];
+const Q_STEPS = [[0, 'Toutes'], [3, '★ 3+'], [4, '★ 4+'], [4.5, '★ 4,5+']];
+const gradeOn = () => F.gmin > GMIN || F.gmax < GMAX;
+const gradeRange = () => F.gmin === F.gmax ? gradeFont(F.gmin) : `${gradeFont(F.gmin)} – ${gradeFont(F.gmax)}`;
 function buildFilterUI() {
-  const opt = (sel, d, f, v) => { const o = el('option', null, f); o.value = d; o.title = `${f} (${v})`; sel.appendChild(o); };
-  for (const [d, f, v] of GRADES) { opt($('gmin'), d, f, v); opt($('gmax'), d, f, v); }
+  for (const id of ['gmin', 'gmax']) { const r = $(id); r.min = GMIN; r.max = GMAX; r.step = 1; }
   $('gmin').value = GMIN; $('gmax').value = GMAX;
+  for (const d of [GMIN, 16, 22, 28, GMAX]) $('gScale').appendChild(el('span', null, gradeFont(d)));
   for (const [k, s] of Object.entries(SORTS)) { const o = el('option', null, s.label); o.value = k; $('sort').appendChild(o); }
-  const box = $('fTypes');
-  for (const t of TYPE_ORDER.filter(t => !['volume', 'foot_chip'].includes(t))) {
+  for (const t of STYLE_TYPES) {
     const b = el('button', 'chip'); b.type = 'button'; b.dataset.t = t; b.setAttribute('aria-pressed', 'false');
-    b.title = `Blocs où les ${TYPES[t].plural} dominent`;
-    const i = el('i'); i.style.background = dotColor(t); b.append(i, capital(TYPES[t].plural)); box.appendChild(b);
+    const i = el('i'); i.style.background = dotColor(t); b.append(i, capital(TYPES[t].plural)); $('fTypes').appendChild(b);
   }
+  for (const [box, steps] of [[$('fAsc'), ASC_STEPS], [$('fQ'), Q_STEPS]])
+    for (const [v, label] of steps) { const b = el('button', null, label); b.type = 'button'; b.dataset.v = v; b.setAttribute('aria-pressed', 'false'); box.appendChild(b); }
+}
+// Filtres actifs en pastilles retirables (le filtre vérifiés/benchmarks a déjà son bouton à côté de « Filtres »)
+function activeChips() {
+  const out = [];
+  if (gradeOn()) out.push([gradeRange(), () => { F.gmin = GMIN; F.gmax = GMAX; }]);
+  if (F.types.size) out.push([STYLE_TYPES.filter(t => F.types.has(t)).map(t => capital(TYPES[t].plural)).join(', '), () => F.types.clear()]);
+  if (F.minAsc) out.push([`${nf.format(F.minAsc)}+ répét.`, () => { F.minAsc = 0; }]);
+  if (F.minQ) out.push([`★ ${fmt(F.minQ, F.minQ % 1 ? 1 : 0)}+`, () => { F.minQ = 0; }]);
+  if (F.favOnly) out.push(['Favoris', () => { F.favOnly = false; }]);
+  if (F.unclimbed) out.push([`Avec les jamais faits à ${state.angle}°`, () => { F.unclimbed = false; }]);
+  return out;
+}
+function syncGrade() {
+  $('gmin').value = F.gmin; $('gmax').value = F.gmax;
+  $('gOut').textContent = gradeOn() ? gradeRange() : 'Toutes';
+  const p0 = (F.gmin - GMIN) / (GMAX - GMIN), p1 = (F.gmax - GMIN) / (GMAX - GMIN), fill = $('gFill');
+  fill.style.left = `calc(13px + (100% - 26px) * ${p0})`; fill.style.width = `calc((100% - 26px) * ${p1 - p0})`;
+  $('gmin').style.zIndex = p0 > 0.5 ? 2 : '';          // les deux poignées au bout : celle du minimum reste attrapable
 }
 function syncFilterUI() {
-  $('fBench').textContent = benchWord()[0];
-  $('fBench').setAttribute('aria-pressed', String(F.bench));
+  const [bw] = benchWord();
+  $('fBenchQ').textContent = bw; $('fBenchQ').setAttribute('aria-pressed', String(F.bench));
+  $('fBenchLab').textContent = `${bw} uniquement`; $('fBench').checked = F.bench;
+  syncGrade();
   for (const b of $('fTypes').children) b.setAttribute('aria-pressed', String(F.types.has(b.dataset.t)));
-  const more = (F.minAsc > 0) + (F.minQ > 0) + F.favOnly + F.unclimbed;
-  $('moreCount').textContent = more ? `(${more})` : '';
-  $('fReset').hidden = !(activeCount(F) || F.q.trim());
+  for (const b of $('fAsc').children) b.setAttribute('aria-pressed', String(+b.dataset.v === F.minAsc));
+  for (const b of $('fQ').children) b.setAttribute('aria-pressed', String(+b.dataset.v === F.minQ));
+  $('fFav').checked = F.favOnly; $('fUnclimbed').checked = F.unclimbed;
+  const n = activeCount(F); $('fCount').hidden = !n; $('fCount').textContent = n;
+  const box = $('fActive'), chips = activeChips(); box.textContent = '';
+  for (const [label, clear] of chips) {
+    const b = el('button', 'achip'); b.type = 'button'; b.setAttribute('aria-label', `Retirer le filtre ${label}`);
+    b.append(label, el('span', null, '✕'));
+    b.addEventListener('click', () => { clear(); applyFilters(); });
+    box.appendChild(b);
+  }
+  if (chips.length > 1) { const r = el('button', 'linkbtn', 'Tout effacer'); r.type = 'button'; r.addEventListener('click', resetFilters); box.appendChild(r); }
 }
+const applyFilters = () => { syncFilterUI(); computeResults(); };
+function resetFilters() { Object.assign(F, defaultFilters(), {sort: F.sort, q: F.q}); applyFilters(); }
 
-const PAGE = 60;
+const PAGE = 20;
 let results = [], shown = 0, resultsRaf = 0, resultsTimer = 0, resultsSeq = 0;
 // Liste déjà en mémoire : au prochain affichage ; sinon on attend un peu (curseur d'angle qu'on fait glisser)
 function scheduleResults() {
@@ -360,9 +397,11 @@ async function computeResults() {
   if (seq !== resultsSeq || !state.board || state.board.id !== id || state.angle !== a) return;
   results = filterClimbs(list, a, F, typeOf, boardFavs);
   shown = 0; $('list').textContent = '';
-  $('count').textContent = `${nf.format(results.length)} bloc${results.length > 1 ? 's' : ''} à ${state.angle}°`;
+  const n = results.length, word = `bloc${n > 1 ? 's' : ''}`;
+  $('count').textContent = `${nf.format(n)} ${word} à ${state.angle}°`;
+  $('fApply').textContent = n ? `Voir ${nf.format(n)} ${word}` : 'Aucun bloc';
   syncFilterUI();
-  if (!results.length) {
+  if (!n) {
     const p = el('p', 'empty', activeCount(F) || F.q.trim() ? 'Aucun bloc ne correspond. Élargissez la cotation ou retirez un filtre.' : `Aucun bloc grimpé à ${state.angle}° sur cette board.`);
     $('list').appendChild(p); $('moreRes').hidden = true; return;
   }
@@ -377,25 +416,33 @@ function renderMore() {
     if (v.bench) name.append(el('span', 'bench', bw));
     if (isFav(c)) name.append(el('span', 'fav', '♥'));
     const grade = el('span', 'rgrade', v.here ? shortGrade(v.grade) : '—');
-    const meta = el('span', 'rmeta', [v.here ? `${nf.format(v.asc)} répét.` : `jamais fait à ${state.angle}°`,
-      v.q != null ? `★ ${fmt(v.q, 1)}` : '', c.setter, c.sample ? 'exemple' : ''].filter(Boolean).join(' · '));
-    const badges = el('span', 'rbadges'); badges.append(...typeBadges(holdProfile(c, typeOf), 3));
-    row.append(name, grade, meta, badges);
+    const meta = el('span', 'rmeta'), st = styleBadge(holdProfile(c, typeOf));
+    if (st) meta.append(st);
+    meta.append(el('span', 'txt', [v.here ? `${nf.format(v.asc)} répét.` : `jamais fait à ${state.angle}°`,
+      v.q != null ? `★ ${fmt(v.q, 1)}` : '', c.setter, c.sample ? 'exemple' : ''].filter(Boolean).join(' · ')));
+    row.append(name, grade, meta);
     row.addEventListener('click', () => selectClimb(c));
     row.addEventListener('pointerenter', () => { if (!c.holds) loadClimb(c.board, c.id).catch(() => {}); }, {once: true});   // détail préchargé au survol
     frag.appendChild(row);
   }
   shown += PAGE; $('list').appendChild(frag);
-  $('moreRes').hidden = shown >= results.length;
-  if (!$('moreRes').hidden) $('moreRes').textContent = `Afficher plus (${nf.format(results.length - shown)} restants)`;
+  const left = results.length - shown;
+  $('moreRes').hidden = left <= 0;
+  if (left > 0) $('moreRes').textContent = `Afficher plus · ${nf.format(left)} restant${left > 1 ? 's' : ''}`;
 }
 function markCurrent() {
   for (const r of $('list').children) if (r.dataset.id) r.setAttribute('aria-current', String(!!state.climb && r.dataset.id === state.climb.id));
 }
 
 /* ---------- Fiche du bloc ---------- */
+// Angles : seulement ceux où le bloc a des répétitions ; 30°, 40°, 50° (et l'angle courant) en accès direct,
+// les autres dans « Tous les angles »
+const MAIN_ANGLES = [30, 40, 50];
+let allAnglesOpen = false;
+function climbedAngles(c) { return (c.stats || []).filter(s => (s[2] || 0) > 0).sort((a, b) => a[0] - b[0]); }
 function renderFiche() {
   const c = state.climb, box = $('fiche');
+  $('vClimb').disabled = !(c && c.holds);
   if (!c || !state.board) { box.hidden = true; return; }
   box.hidden = false;
   const v = view(c, state.angle), [, bw] = benchWord();
@@ -404,17 +451,32 @@ function renderFiche() {
   if (v.bench) g.append(el('span', 'bench', bw));
   $('fMeta').textContent = [c.setter ? `par ${c.setter}` : '', v.here && v.asc ? `${nf.format(v.asc)} répétitions` : '',
     v.q != null ? `★ ${fmt(v.q, 1)} / 5` : '', c.sample ? 'bloc d\'exemple' : ''].filter(Boolean).join(' · ');
-  const t = $('fTypesOut'); t.textContent = '';
-  const prof = holdProfile(c, typeOf);
-  if (Object.keys(prof.counts).length) { t.append(el('span', 'rmeta', 'Mains :'), ...typeBadges(prof, 6)); }
+  const st = $('fStyle'), sb = styleBadge(holdProfile(c, typeOf)); st.textContent = '';
+  if (sb) st.append('Style', sb);
+  const climbed = climbedAngles(c), pref = new Set([...MAIN_ANGLES, state.angle]);
+  let main = climbed.filter(s => pref.has(s[0]));
+  if (!main.length) main = [...climbed].sort((a, b) => b[2] - a[2]).slice(0, 3).sort((a, b) => a[0] - b[0]);
   const an = $('fAngles'); an.textContent = '';
-  for (const s of (c.stats || []).slice().sort((a, b) => a[0] - b[0])) {
+  for (const s of main) {
     const b = el('button'); b.type = 'button'; b.setAttribute('aria-pressed', String(s[0] === state.angle));
     b.append(`${s[0]}°`, el('small', null, (s[1] || '').split('/')[0]));
-    b.title = `${s[1]} à ${s[0]}° · ${nf.format(s[2])} répétitions`;
+    b.title = `${shortGrade(s[1])} à ${s[0]}° · ${nf.format(s[2])} répétitions`;
     b.addEventListener('click', () => applyAngle(s[0])); an.appendChild(b);
   }
-  an.hidden = !an.children.length;
+  const more = climbed.length > main.length;
+  if (more) {
+    const b = el('button', 'allbtn', `Tous les angles (${climbed.length})`); b.type = 'button';
+    b.setAttribute('aria-expanded', String(allAnglesOpen)); b.setAttribute('aria-controls', 'fAllAngles');
+    b.addEventListener('click', () => { allAnglesOpen = !allAnglesOpen; renderFiche(); });
+    an.appendChild(b);
+  }
+  an.hidden = !climbed.length;
+  const all = $('fAllAngles'); all.textContent = ''; all.hidden = !(more && allAnglesOpen);
+  if (!all.hidden) for (const s of climbed) {
+    const r = el('button', 'arow'); r.type = 'button'; r.setAttribute('aria-pressed', String(s[0] === state.angle));
+    r.append(el('span', null, `${s[0]}°`), el('span', null, shortGrade(s[1])), el('span', 'm', `${nf.format(s[2])} répét.`), el('span', 'm', s[3] != null ? `★ ${fmt(s[3], 1)}` : ''));
+    r.addEventListener('click', () => applyAngle(s[0])); all.appendChild(r);
+  }
   const fav = isFav(c);
   $('aFav').setAttribute('aria-pressed', String(fav)); $('aFav').textContent = fav ? '♥ Dans vos favoris' : '♡ Ajouter aux favoris';
 }
@@ -439,7 +501,9 @@ async function selectClimb(c) {
     if (seq !== climbSeq || !state.board || c.board !== state.board.id) return;   // autre bloc ou autre board entre-temps
     if (!c.holds) { $('msg').textContent = `Détail du bloc « ${c.name} » indisponible.`; return; }
   }
+  if (state.climb !== c) allAnglesOpen = false;
   state.climb = c; paintClimb(); renderFiche(); markCurrent(); updateHash();
+  if (state.view === 'climb') goView('climb');
 }
 const findClimb = (board, id) => loadClimb(board, id).catch(err => { console.warn('Bloc introuvable', id, err); return null; });
 
@@ -486,36 +550,201 @@ function renderBoards() {
   }
 }
 
-/* ---------- Vues caméra ---------- */
+/* ---------- Cadrage ---------- */
+// « Board » : toute la board, face au panneau ; « Bloc » : les prises du bloc. Face au panneau = perpendiculaire,
+// relevée si la caméra passerait trop bas (fort dévers). Tant que l'utilisateur n'a pas bougé la vue, le cadrage
+// suit l'angle, le kicker et la taille de la fenêtre.
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
-let tween = null;
-function panelPoint(t) {
-  const b = state.board, r = THREE.MathUtils.degToRad(state.angle);
-  return new THREE.Vector3(0, MAT + state.kicker + b.panel * t * Math.cos(r), b.panel * t * Math.sin(r));
+const UP = new THREE.Vector3(0, 1, 0), MIN_EYE = 0.6, rad = THREE.MathUtils.degToRad;
+let tween = null, userMoved = false, viewInset = 0;
+function boardPoints() {
+  const b = state.board, r = rad(state.angle), base = MAT + state.kicker, W = b.width / 2;
+  const ty = base + b.panel * Math.cos(r), tz = b.panel * Math.sin(r);
+  return [[-W, MAT, 0], [W, MAT, 0], [-W, base, 0], [W, base, 0], [-W, ty, tz], [W, ty, tz]].map(p => new THREE.Vector3(...p));
+}
+// Surface de la board : le panneau (incliné, à partir de la charnière) et le kicker (vertical, dessous).
+// La cible de la caméra glisse sur cette surface et reste dans ses bords (plus une marge) : on ne se perd pas.
+const surf = {o: new THREE.Vector3(), up: new THREE.Vector3(), n: new THREE.Vector3(), W: 0, P: 0, base: 0};
+function updateBounds() {
+  if (!state.board) return;
+  const r = rad(state.angle);
+  surf.base = MAT + state.kicker; surf.W = state.board.width / 2; surf.P = state.board.panel;
+  surf.o.set(0, surf.base, 0); surf.up.set(0, Math.cos(r), Math.sin(r)); surf.n.set(0, -Math.sin(r), Math.cos(r));
+}
+const EDGE = 0.25;
+// Point de la surface sur un rayon (origine o, direction d) ; null si le rayon ne la touche pas (marge comprise)
+function surfaceHit(o, d, out, loose) {
+  const m = loose ? 1.5 : EDGE;
+  let den = d.dot(surf.n);
+  if (Math.abs(den) > 1e-4) {
+    const t = -_v.copy(o).sub(surf.o).dot(surf.n) / den;
+    if (t > 0) {
+      out.copy(o).addScaledVector(d, t);
+      const v = _v.copy(out).sub(surf.o).dot(surf.up);
+      if (v >= 0 && v <= surf.P + m && Math.abs(out.x) <= surf.W + m) return out;
+    }
+  }
+  if (Math.abs(d.z) > 1e-4) {                                    // kicker : plan z = 0
+    const t = -o.z / d.z;
+    if (t > 0) {
+      out.copy(o).addScaledVector(d, t);
+      if (out.y >= MAT - m && out.y <= surf.base && Math.abs(out.x) <= surf.W + m) return out;
+    }
+  }
+  return null;
+}
+function climbPoints(c) {
+  if (!c || !c.holds) return null;
+  kickerG.updateMatrixWorld(true); panelG.updateMatrixWorld(true);
+  const pts = [];
+  for (const [id] of c.holds) {
+    const h = holds.get(id); if (!h) continue;
+    const g = h.onKick ? kickerG : panelG, s = h.re * 1.6;
+    for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) pts.push(g.localToWorld(new THREE.Vector3(h.x + dx * s, h.y + dy * s, 0)));
+  }
+  if (!pts.length) return null;
+  // cadre d'au moins 1,2 m × 1 m dans le plan du panneau
+  const c0 = new THREE.Box3().setFromPoints(pts).getCenter(new THREE.Vector3()), r = rad(state.angle);
+  const up = new THREE.Vector3(0, Math.cos(r), Math.sin(r));
+  pts.push(c0.clone().addScaledVector(up, 0.6), c0.clone().addScaledVector(up, -0.6), c0.clone().setX(c0.x - 0.5), c0.clone().setX(c0.x + 0.5));
+  return pts;
+}
+function frameOn(points, margin) {
+  const c = new THREE.Box3().setFromPoints(points).getCenter(new THREE.Vector3());
+  const tv = Math.tan(rad(camera.fov / 2)), H = host.clientHeight || 1, W = host.clientWidth || 1;
+  const th = tv * Math.max(0.3, (W - viewInset) / H);
+  for (let e = -rad(state.angle); ; e += rad(2)) {
+    const dir = new THREE.Vector3(0, Math.sin(e), Math.cos(e));               // de la cible vers la caméra
+    const fwd = dir.clone().negate(), right = new THREE.Vector3().crossVectors(fwd, UP).normalize(), up = new THREE.Vector3().crossVectors(right, fwd);
+    let d = 0;
+    for (const p of points) {
+      const q = p.clone().sub(c), z = q.dot(fwd);
+      d = Math.max(d, Math.abs(q.dot(up)) / tv - z, Math.abs(q.dot(right)) / th - z);
+    }
+    d = Math.max(controls.minDistance, d * margin);
+    const pos = c.clone().addScaledVector(dir, d);
+    if (pos.y >= MIN_EYE || e > 0.6) return {pos, tgt: c};
+  }
+}
+function startTween(pos, tgt, instant) {
+  if (instant || reduce) { camera.position.copy(pos); controls.target.copy(tgt); tween = null; invalidate(); }
+  else tween = {p0: camera.position.clone(), t0: controls.target.clone(), p1: pos, t1: tgt, s: performance.now(), d: 650};
 }
 function goView(v, instant) {
   state.view = v;
   for (const bt of document.querySelectorAll('[data-view]')) bt.setAttribute('aria-pressed', String(bt.dataset.view === v));
-  const b = state.board, mid = panelPoint(0.45); let pos, tgt;
-  const fit = Math.max(b.width, b.panel + state.kicker);
-  if (v === 'side') { pos = new THREE.Vector3(Math.min(ROOM.x - 1.6, b.width / 2 + fit * 1.3), 2.0, mid.z + 1.6); tgt = mid.clone().setX(0); }
-  else if (v === 'climber') { pos = new THREE.Vector3(0, MAT + EYE, 1.9 + mid.z * 0.4); tgt = panelPoint(0.7); }   // vue depuis le tapis, à hauteur des yeux
-  else { pos = new THREE.Vector3(0, 2.1, Math.min(ROOM.front - 1, fit * 1.5 + mid.z)); tgt = mid; }
-  if (instant || reduce) { camera.position.copy(pos); controls.target.copy(tgt); tween = null; invalidate(); }
-  else tween = {p0: camera.position.clone(), t0: controls.target.clone(), p1: pos, t1: tgt, s: performance.now(), d: 650};
+  if (!state.board) return;
+  const pts = (v === 'climb' && climbPoints(state.climb)) || boardPoints();    // pas encore de bloc : toute la board
+  const f = frameOn(pts, pts.length > 6 ? 1.1 : 1.05);
+  userMoved = false;
+  startTween(f.pos, f.tgt, instant);
+}
+const reframe = () => { if (!userMoved && state.board) goView(state.view, true); };
+// Sur grand écran, la carte « Ma board » couvre le haut à gauche : le centre de l'image est décalé vers la droite
+function applyViewOffset() {
+  const W = host.clientWidth, H = host.clientHeight; if (!W || !H) return;
+  const card = document.querySelector('.boardcard');
+  viewInset = innerWidth > 760 && card ? Math.min(W * 0.4, card.getBoundingClientRect().right - host.getBoundingClientRect().left + 8) : 0;
+  camera.aspect = (W + viewInset) / H;
+  if (viewInset) camera.setViewOffset(W + viewInset, H, 0, 0, W, H); else camera.clearViewOffset();
+  camera.updateProjectionMatrix();
 }
 
-/* ---------- Sélection de prise & mesure ---------- */
-const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
-let down = null;
-renderer.domElement.addEventListener('pointerdown', e => { down = {x: e.clientX, y: e.clientY}; });
-renderer.domElement.addEventListener('pointerup', e => {
-  if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5) return;
+/* ---------- Navigation : comme une carte ---------- */
+// Glisser = se déplacer (le long de la board), molette ou pincement = zoom vers le pointeur,
+// clic droit / Maj + glisser / deux doigts = tourner (devant la board seulement), double-clic sur une prise = zoom dessus
+controls.mouseButtons = {LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE};
+controls.touches = {ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_ROTATE};
+controls.enableZoom = false;                         // zoom vers le pointeur, géré ici
+controls.screenSpacePanning = true;
+controls.minAzimuthAngle = -1.15; controls.maxAzimuthAngle = 1.15;
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), _plane = new THREE.Plane(), _hitP = new THREE.Vector3(), _v = new THREE.Vector3();
+function setRay(x, y) {
   const rc = renderer.domElement.getBoundingClientRect();
-  ndc.set((e.clientX - rc.left) / rc.width * 2 - 1, -((e.clientY - rc.top) / rc.height) * 2 + 1);
+  ndc.set((x - rc.left) / rc.width * 2 - 1, -((y - rc.top) / rc.height) * 2 + 1);
   ray.setFromCamera(ndc, camera);
-  let hit = null; scene.updateMatrixWorld();
+}
+// k < 1 rapproche : le point de la board sous le pointeur reste sous le pointeur
+function zoomAt(x, y, k) {
+  setRay(x, y);
+  if (!surfaceHit(ray.ray.origin, ray.ray.direction, _hitP, true)) {
+    _plane.setFromNormalAndCoplanarPoint(camera.getWorldDirection(_v), controls.target);
+    if (!ray.ray.intersectPlane(_plane, _hitP)) return;
+  }
+  const dist = camera.position.distanceTo(controls.target);
+  k = Math.min(controls.maxDistance / dist, Math.max(controls.minDistance / dist, k));
+  camera.position.sub(_hitP).multiplyScalar(k).add(_hitP);
+  controls.target.sub(_hitP).multiplyScalar(k).add(_hitP);
+  tween = null; userMoved = true; hideNavHint(); invalidate();
+}
+// La cible est ramenée sur la surface le long de l'axe de vue (l'image ne change pas), puis bornée aux bords
+// de la board : la caméra suit du même déplacement, sans tourner.
+const _t = new THREE.Vector3(), _dir = new THREE.Vector3();
+function clampTarget() {
+  if (!state.board || tween) return;
+  const t = controls.target;
+  camera.getWorldDirection(_dir);
+  if (!surfaceHit(_t.copy(t).addScaledVector(_dir, -50), _dir, _t, true)) _t.copy(t);
+  let v = _v.copy(_t).sub(surf.o).dot(surf.up);
+  _t.x = Math.max(-surf.W - EDGE, Math.min(surf.W + EDGE, _t.x));
+  if (v >= 0) {                                                   // sur le panneau
+    v = Math.min(surf.P + EDGE, v);
+    _t.set(_t.x, 0, 0).add(_v.copy(surf.up).multiplyScalar(v)).add(surf.o).setX(_t.x);
+  } else _t.set(_t.x, Math.max(MAT - EDGE, Math.min(surf.base, _t.y)), 0);   // sur le kicker
+  if (_t.distanceToSquared(t) > 1e-10) { _v.subVectors(_t, t); t.add(_v); camera.position.add(_v); }
+}
+function pickAt(x, y) {
+  setRay(x, y); scene.updateMatrixWorld();
+  let hit = null;
   for (const L of holdLayers) { const r = pickHold(L.merged, L.mesh, ray.ray); if (r && (!hit || r.distance < hit.distance)) hit = r; }
+  return hit;
+}
+const holdWorld = h => (h.onKick ? kickerG : panelG).localToWorld(new THREE.Vector3(h.x, h.y, 0));
+function zoomToHold(id) {
+  const h = holds.get(id); if (!h) return;
+  const wp = holdWorld(h), dir = camera.position.clone().sub(controls.target).normalize();
+  startTween(wp.clone().addScaledVector(dir, 0.8), wp); userMoved = true;
+}
+function hideNavHint() {
+  if ($('navHint').hidden) return;
+  $('navHint').hidden = true; prefs.navSeen = true; savePrefs();
+}
+const cv = renderer.domElement;
+cv.addEventListener('contextmenu', e => e.preventDefault());
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  const k = Math.exp(e.deltaY * (e.deltaMode === 1 ? 0.05 : e.ctrlKey ? 0.01 : 0.0015));   // ctrl = pincement sur pavé tactile
+  zoomAt(e.clientX, e.clientY, k);
+}, {passive: false});
+// Pincement : zoom vers le milieu des deux doigts (la rotation à deux doigts reste à OrbitControls)
+const touches = new Map(); let pinch = 0;
+const pinchDist = () => { const [a, b] = [...touches.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+let down = null, lastTap = null;
+cv.addEventListener('pointerdown', e => {
+  down = {x: e.clientX, y: e.clientY};
+  if (e.pointerType === 'touch') { touches.set(e.pointerId, {x: e.clientX, y: e.clientY}); if (touches.size === 2) pinch = pinchDist(); }
+});
+cv.addEventListener('pointermove', e => {
+  if (down && e.buttons && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5) { userMoved = true; tween = null; hideNavHint(); }
+  if (!touches.has(e.pointerId)) return;
+  touches.set(e.pointerId, {x: e.clientX, y: e.clientY});
+  if (touches.size === 2) {
+    const d = pinchDist(), [a, b] = [...touches.values()];
+    if (pinch && d) zoomAt((a.x + b.x) / 2, (a.y + b.y) / 2, pinch / d);
+    pinch = d;
+  }
+});
+const endTouch = e => { touches.delete(e.pointerId); pinch = 0; };
+cv.addEventListener('pointercancel', endTouch);
+
+/* ---------- Sélection de prise & mesure ---------- */
+cv.addEventListener('pointerup', e => {
+  endTouch(e);
+  if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5) return;
+  const hit = pickAt(e.clientX, e.clientY), now = performance.now();
+  const dbl = lastTap && now - lastTap.t < 350 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 24;
+  lastTap = dbl ? null : {t: now, x: e.clientX, y: e.clientY};
+  if (dbl) { hideNavHint(); if (hit) zoomToHold(hit.id); else zoomAt(e.clientX, e.clientY, 0.5); return; }
   if (!hit) return;
   const id = hit.id, h = holds.get(id);
   const role = state.climb ? (state.climb.holds.find(x => x[0] === id) || [])[1] : null;
@@ -544,7 +773,7 @@ new MutationObserver(syncTheme).observe(document.documentElement, {attributes: t
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', syncTheme);
 const ro = new ResizeObserver(() => {
   const w = host.clientWidth, h = host.clientHeight; if (!w || !h) return;
-  renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); invalidate();
+  renderer.setSize(w, h, false); applyViewOffset(); reframe(); invalidate();
 });
 ro.observe(host);
 
@@ -575,30 +804,32 @@ $('angle').addEventListener('input', e => setAngle(+e.target.value));
 $('angleSeg').addEventListener('click', e => { const bt = e.target.closest('button'); if (bt) applyAngle(+bt.dataset.a); });
 $('kicker').addEventListener('input', e => setKicker(+e.target.value));
 
-let qTimer = null;
+let qTimer = null, gTimer = null;
 $('q').addEventListener('input', e => { clearTimeout(qTimer); qTimer = setTimeout(() => { F.q = e.target.value; computeResults(); }, 150); });
-const gradeChange = which => {
+// Feuille des filtres
+const sheet = $('fSheet');
+$('fOpen').addEventListener('click', () => { syncFilterUI(); sheet.showModal(); });
+sheet.addEventListener('click', e => { if (e.target === sheet) sheet.close(); });      // clic sur le fond
+const gradeInput = which => {
   let lo = +$('gmin').value, hi = +$('gmax').value;
-  if (lo > hi) { if (which === 'min') hi = lo; else lo = hi; $('gmin').value = lo; $('gmax').value = hi; }
-  F.gmin = lo; F.gmax = hi; computeResults();
+  if (lo > hi) { if (which === 'min') lo = hi; else hi = lo; }
+  F.gmin = lo; F.gmax = hi; syncGrade();
+  clearTimeout(gTimer); gTimer = setTimeout(applyFilters, 120);
 };
-$('gmin').addEventListener('change', () => gradeChange('min'));
-$('gmax').addEventListener('change', () => gradeChange('max'));
-$('fBench').addEventListener('click', () => { F.bench = !F.bench; computeResults(); });
+$('gmin').addEventListener('input', () => gradeInput('min'));
+$('gmax').addEventListener('input', () => gradeInput('max'));
+$('fBenchQ').addEventListener('click', () => { F.bench = !F.bench; applyFilters(); });
+$('fBench').addEventListener('change', e => { F.bench = e.target.checked; applyFilters(); });
 $('fTypes').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
-  F.types.has(b.dataset.t) ? F.types.delete(b.dataset.t) : F.types.add(b.dataset.t); computeResults();
+  F.types.has(b.dataset.t) ? F.types.delete(b.dataset.t) : F.types.add(b.dataset.t); applyFilters();
 });
-$('fAsc').addEventListener('change', e => { F.minAsc = +e.target.value; computeResults(); });
-$('fQ').addEventListener('change', e => { F.minQ = +e.target.value; computeResults(); });
-$('fFav').addEventListener('change', e => { F.favOnly = e.target.checked; computeResults(); });
-$('fUnclimbed').addEventListener('change', e => { F.unclimbed = e.target.checked; computeResults(); });
+$('fAsc').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { F.minAsc = +b.dataset.v; applyFilters(); } });
+$('fQ').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { F.minQ = +b.dataset.v; applyFilters(); } });
+$('fFav').addEventListener('change', e => { F.favOnly = e.target.checked; applyFilters(); });
+$('fUnclimbed').addEventListener('change', e => { F.unclimbed = e.target.checked; applyFilters(); });
 $('sort').addEventListener('change', e => { F.sort = e.target.value; computeResults(); });
-$('fReset').addEventListener('click', () => {
-  Object.assign(F, defaultFilters(), {sort: F.sort});
-  $('q').value = ''; $('gmin').value = GMIN; $('gmax').value = GMAX; $('fAsc').value = 0; $('fQ').value = 0;
-  $('fFav').checked = false; $('fUnclimbed').checked = false; computeResults();
-});
+$('fReset').addEventListener('click', resetFilters);
 $('moreRes').addEventListener('click', renderMore);
 
 $('aFav').addEventListener('click', () => {
@@ -651,6 +882,7 @@ function loop(now) {
     if (t >= 1) tween = null;
   }
   const moved = controls.update();
+  clampTarget();
   const cp = camera.position;                                    // la caméra reste dans la salle
   cp.x = Math.max(-ROOM.x + 0.4, Math.min(ROOM.x - 0.4, cp.x)); cp.z = Math.max(ROOM.back + 0.4, Math.min(ROOM.front - 0.4, cp.z)); cp.y = Math.max(0.5, Math.min(ROOM.h - 0.4, cp.y));
   if (moved || tween || dirty) {
@@ -683,7 +915,9 @@ if (import.meta.env && import.meta.env.DEV) window.__board3d = {renderer, scene,
 requestAnimationFrame(loop);
 
 async function start() {
-  buildFilterUI();
+  buildFilterUI(); syncFilterUI();
+  if (matchMedia('(pointer: coarse)').matches) $('navHint').textContent = 'Glisser : se déplacer · Pincer : zoomer · Deux doigts : tourner · Double-tap sur une prise : zoomer dessus';
+  if (!prefs.navSeen) $('navHint').hidden = false;
   $('finish').value = state.finish; setToggle('tDim', state.dim); setToggle('tType', state.byType); $('typeLegend').hidden = !state.byType;
   const r = await loadManifest();
   if (!r.ok) $('msg').textContent = `Données absentes (${r.error}). Lancez « npm run data » pour générer les vraies boards.`;

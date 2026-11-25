@@ -5,7 +5,7 @@ Visualiseur 3D de boards d'escalade (Kilter, Tension, MoonBoard), dans une salle
 - 9 boards : Kilter Original 12×12 et Homewall 10×12, Tension 1, Tension 2 Mirror et Spray, MoonBoard 2016, 2024, Masters 2017 et 2019
 - Prises modelées d'après leur contour réel, leur type (réglette, bac, plat, pince, trou…) et leur orientation, avec le trou de vis
 - Angle et hauteur du kicker réglables, cotation et répétitions selon l'angle
-- Vues de face, de profil et depuis le tapis ; mesure de hauteur et de distance entre prises au clic
+- Cadrages « Board » (face au panneau) et « Bloc » ; navigation comme une carte (glisser, zoom vers le pointeur, double-clic sur une prise) ; mesure de hauteur et de distance entre prises au clic
 
 ## Démarrer
 

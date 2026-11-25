@@ -15,14 +15,14 @@ npm test             # tests Node (tests/*.test.js) + Python (tests/test_*.py)
 
 ## Architecture
 
-- `src/main.js` : scène, construction de la board (panneau, kicker, châssis, vérins), sélection board/bloc, vues, mesure au clic, import. **Rendu à la demande** : toute modification de la scène hors interaction caméra doit appeler `invalidate()`. Qualité réduite sur téléphone (`LOW`) et ajustée si l'image saccade (`adaptQuality`). En dev, `window.__board3d` expose renderer, scène, caméra et état.
+- `src/main.js` : scène, construction de la board (panneau, kicker, châssis, vérins), sélection board/bloc, cadrages, navigation, mesure au clic, import. **Rendu à la demande** : toute modification de la scène hors interaction caméra doit appeler `invalidate()`. Qualité réduite sur téléphone (`LOW`) et ajustée si l'image saccade (`adaptQuality`). En dev, `window.__board3d` expose renderer, scène, caméra et état.
 - `src/holds/merge.js` : prises d'un plan (panneau / kicker) fusionnées en un maillage ; couleur et émission par sommet (`paintHold`, matériau `holdMaterial`), clic par sphères englobantes puis triangles (`pickHold`).
 - `src/ui/filters.js` : logique de recherche sans DOM — statistiques d'un bloc à un angle (`view`), profil des prises de main et type dominant (`holdProfile`), filtres, tris (`rec` = répétitions × note/5). Testable dans Node.
 - `src/data.js` : manifeste `data/index.json` (lu sans cache), géométrie `boards/<id>.json`, blocs découpés chargés à la demande (`openClimbs`, `climbsAt(board, angle, all)`, `loadClimb`), import d'un fichier perso (une board connue garde sa géométrie si le fichier a moins de contours), blocs d'exemple si pas de blocs. Un bloc = un seul objet par id, complété au fil des chargements (stats de chaque angle, puis prises).
 - **Blocs découpés** (`climbs/<board>/`, format décrit dans `split_climbs` du script, à garder en phase avec `data.js`) : `a<angle>.json` (liste sans prises, en colonnes), `all.json` (tous les blocs, seulement pour « jamais faits à cet angle »), `d/<n>.json` (prises + stats de tous les angles), `meta.json` recopié dans `index.json`. Ids raccourcis au plus petit préfixe unique ≥ 8 caractères (`idLen`) : liens et favoris utilisent l'id court, `climbKey()` ramène les anciens ids complets. Paquet = FNV-1a(id court) % `chunks` (puissance de deux). `?v=` sur chaque requête. Tests de bout en bout dans `tests/split.test.js` (le script Python écrit, `data.js` relit).
 - `src/holds/geometry.js` : modelage des prises. Anneaux du contour vers le **boulon** (origine du contour) ; flancs droits, dessus bombé ; réglette/bac : face inférieure creusée → pointe à arête vive (sommets doublés) → nez arrondi, lèvre qui déborde (`lip`) ; plat : flancs arrondis ; trou (pocket) : cuvette (`surfZ`) ; vrai trou de vis creusé (fraisure + puits, groupe de matériau 1). Repli en dalle si contour trop concave.
 - `src/config.js` : rôles (départ/main/top/pied), `TYPES` (hauteurs `H`, `kind`, `fw` largeur des flancs, `lip` débord), orientations.
-- `src/scene/room.js` : salle (béton, murs, plafond, LED, murs de bloc voisins, tapis, accessoires). `MAT = 0.30` : toutes les hauteurs affichées partent du tapis ; le kicker part du sol, son réglage = hauteur visible au-dessus du tapis. `EYE = 1.62` pour la vue Grimpeur. `mergeStatic` fusionne les maillages statiques par matériau, `faceBox` = panneau à 2 appels de dessin.
+- `src/scene/room.js` : salle (béton, murs, plafond, LED, murs de bloc voisins, tapis, accessoires). `MAT = 0.30` : toutes les hauteurs affichées partent du tapis ; le kicker part du sol, son réglage = hauteur visible au-dessus du tapis. `mergeStatic` fusionne les maillages statiques par matériau, `faceBox` = panneau à 2 appels de dessin.
 - `scripts/build_board_data.py` : génération des données (Python 3.9+, sans dépendance). Dictionnaire `BOARDS` = config de chaque board (taille Boardsesh, sets, dimensions physiques, plage du kicker).
 
 ## Données et sources
@@ -35,17 +35,22 @@ npm test             # tests Node (tests/*.test.js) + Python (tests/test_*.py)
 
 ## Interface (architecture d'information)
 
-1. **Ma board** (contexte, mémorisé dans `localStorage` `board3d:prefs`) : résumé + « Modifier » (modèle, kicker, finition) ; l'**angle** reste visible et pilote cotations, répétitions et filtres.
-2. **Trouver un bloc** : recherche nom/ouvreur, cotation (Font), « Vérifiés » (Kilter) / « Benchmarks », type de prise dominant (filtre + badges dans la liste), « Plus de filtres » (répétitions, note, favoris, blocs jamais faits à cet angle), tri « Recommandés » par défaut, pagination par 60.
-3. **Fiche du bloc** sur la scène (sous la scène sur téléphone) : cotation à l'angle, cotations par angle cliquables, profil des prises, copier le lien, favori.
-4. **Affichage** dans la barre d'outils de la scène : vues, atténuer, couleur par type.
+Le panneau de gauche ne contient que les blocs ; tout ce qui concerne la board est sur la scène.
+
+1. **Ma board**, carte en haut à gauche de la scène (au-dessus de la scène sur téléphone), mémorisée dans `localStorage` `board3d:prefs` : modèle + « Réglages » (modèle, kicker, finition), **angle** toujours visible (pilote cotations, répétitions et filtres), cotes. Sur grand écran, le centre de l'image est décalé à droite de la carte (`applyViewOffset`).
+2. **Blocs** (panneau) : recherche nom/ouvreur, bouton « Filtres (n) » + bouton rapide « Vérifiés » (Kilter) / « Benchmarks » + tri ; filtres actifs en pastilles retirables ; liste par 20 avec « Afficher plus » ; chaque ligne montre le **style principal** (type de prise de main dominant, sans compte).
+3. **Feuille des filtres** (`<dialog>`, à gauche sur ordinateur, en bas sur téléphone) : cotation (curseur à deux poignées), vérifiés/benchmarks, style principal, répétitions et note (boutons segmentés), favoris, jamais faits à cet angle ; « Voir N blocs ».
+4. **Fiche du bloc** sur la scène (sous la scène sur téléphone) : cotation à l'angle, style principal, angles **où le bloc a des répétitions** seulement : 30°, 40°, 50° (et l'angle courant) en accès direct, les autres dans « Tous les angles » (tableau cotation, répétitions, note) ; copier le lien, favori.
+5. **Cadrage et affichage** (barre d'outils de la scène) : « Board » (toute la board, face au panneau, relevée si la caméra passerait sous ~0,6 m) et « Bloc » (prises du bloc) ; le cadrage suit l'angle et le kicker tant que l'utilisateur n'a pas bougé la vue ; atténuer, couleur par type.
+6. **Navigation comme une carte** : glisser = se déplacer, molette / pincement = zoom vers le pointeur, clic droit / Maj + glisser / deux doigts = tourner (devant la board seulement), double-clic / double-tap sur une prise = zoom dessus. La cible de la caméra glisse sur la surface de la board (panneau + kicker) et reste dans ses bords (`clampTarget`).
 - Liens partageables : `#<board>/<id du bloc>/<angle>`.
 
 ## Décisions déjà prises (ne pas revenir dessus sans demander)
 
-- Pas de grimpeur/mannequin dans la scène (supprimé à la demande).
+- Pas de grimpeur/mannequin dans la scène (supprimé à la demande). Pas de vues Grimpeur ni Profil (supprimées à la demande) : cadrages Board et Bloc seulement.
+- Les prises « pocket » s'appellent « pocket » (pas « trou »).
 - L'angle est un réglage de la board, pas un filtre ; les filtres s'appliquent aux statistiques à cet angle.
-- Tri naturel : répétitions pondérées par la note ; benchmarks/vérifiés et cotation en filtres principaux.
+- Tri naturel : répétitions pondérées par la note ; cotation et benchmarks/vérifiés en tête de la feuille des filtres, vérifiés/benchmarks aussi en bouton rapide.
 - Analyse des mouvements : en dernier dans la feuille de route.
 - Prises Kilter blanc cassé ; panneau noir par défaut (finitions bois / blanc en option).
 - La partie qui crochète d'une réglette ou d'un bac est le **bord extérieur** (lèvre qui déborde), jamais un creux dans la prise.

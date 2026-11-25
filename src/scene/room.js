@@ -42,8 +42,7 @@ export function textSprite(text, hM, color = '#e8ebed') {
 
 /* ---------- Salle d'escalade ---------- */
 // Repère : x = largeur, y = hauteur, z = vers le grimpeur. Board centrée en x = 0, charnière du kicker en z = 0.
-export const MAT = 0.30;
-export const EYE = 1.62;                                     // hauteur des yeux pour la vue Grimpeur                                     // épaisseur des tapis : les hauteurs affichées partent du tapis
+export const MAT = 0.30;                                     // épaisseur des tapis : les hauteurs affichées partent du tapis
 export const ROOM = {x: 9, back: -2.4, front: 10, h: 6.2};
 let rngSeed = 11;
 const rnd = () => (rngSeed = (rngSeed * 16807) % 2147483647) / 2147483647;
