@@ -38,7 +38,7 @@ Valeur : ★ utile · ★★ important · ★★★ ce qui distingue le projet.
 | Chantier | Détail | Effort | Valeur | Phase |
 |---|---|---|---|---|
 | Regrouper les maillages | Toutes les prises d'une board en un ou deux objets 3D au lieu de ~500 ; idem pour la salle | M | ★★ | 1 |
-| Blocs découpés | Fichiers de blocs par board et par tranche (angle ou cotation), chargés à la demande | M | ★★ | 2 |
+| ~~Blocs découpés~~ ✅ | Une liste par angle (sans les prises), le détail par paquets, `all.json` pour « jamais faits à cet angle » ; tous les blocs gardés (Kilter Original : 83 900, 0,9 Mo compressé à 40° au lieu de 7 Mo) | M | ★★ | 2 |
 | Mise à jour de Three.js | Passer de r147 à une version récente (gestion des couleurs, ombres) | M | ★ | 2 |
 | Qualité graphique adaptative | Ombres et détail de la salle réduits automatiquement sur téléphone | S | ★★ | 1–2 |
 | Tests | Tests du script de données (faux snapshots) et du modelage des prises ; vérification visuelle automatique dans la CI | M | ★★ | 2 |
@@ -101,6 +101,6 @@ Valeur : ★ utile · ★★ important · ★★★ ce qui distingue le projet.
 
 1. Regrouper les maillages et adapter la qualité graphique au téléphone (performance).
 2. Ajouter les contrôles de génération.
-3. Refonte du panneau (board / recherche de blocs / fiche bloc), filtres, tri, liens partageables et fichiers de blocs découpés.
+3. ~~Refonte du panneau (board / recherche de blocs / fiche bloc), filtres, tri, liens partageables et fichiers de blocs découpés.~~ ✅
 4. Écrire à Boardsesh et à CruxCoach.
 5. Éditeur de blocs et variantes d'un bloc existant ; l'analyse des mouvements en dernier.

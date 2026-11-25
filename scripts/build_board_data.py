@@ -7,7 +7,11 @@ build_board_data.py — produit en UNE commande les données de Board 3D.
 Résultat, dans public/data/ (servi tel quel par le site) :
     index.json              manifeste : boards, sources, versions, date de génération
     boards/<id>.json        géométrie d'une board : prises (position, teinte, type, orientation), contours
-    climbs/<id>.json        blocs d'une board (les plus répétés), avec cotation et répétitions par angle
+    climbs/<id>/            blocs d'une board, découpés pour être chargés à la demande :
+        a<angle>.json         blocs grimpés à cet angle, sans les prises (liste, filtres, tri)
+        all.json              tous les blocs, sans statistiques (filtre « jamais faits à cet angle »)
+        d/<n>.json            détail par paquets : prises et statistiques à tous les angles
+        meta.json             descripteur (recopié dans index.json)
 
 Variante : --out fichier.json écrit un fichier unique, importable dans la page (« Importer un fichier »).
 
@@ -399,16 +403,123 @@ def load_climbs(db, key, cfg, known, limit, min_ascents):
     return out[:limit] if limit else out
 
 
-def angles_from(climbs, board):
+def angles_from(angles, board):
+    """Réglages d'angle de la board d'après les angles où des blocs ont été grimpés."""
     if board == "moonboard":
-        vals = sorted({s[0] for c in climbs for s in c["stats"]} & {25, 40}) or [40]
+        vals = sorted(set(angles) & {25, 40}) or [40]
         return {"list": vals, "def": 40 if 40 in vals else vals[0]}
-    vals = sorted({s[0] for c in climbs for s in c["stats"] if s[0] is not None})
+    vals = sorted(a for a in set(angles) if a is not None)
     if not vals:
         return {"min": 0, "max": 70, "step": 5, "def": 40}
     # plage physique des boards réglables (0–70°), élargie si des blocs existent hors de cette plage
     lo, hi = min(0, vals[0]), max(70, vals[-1])
     return {"min": lo, "max": hi, "step": 5, "def": 40}
+
+
+# ------------------------------------------------------------------------------ blocs découpés
+# Format du dossier climbs/<board>/, lu par src/data.js (garder les deux en phase) :
+#   a<angle>.json  {angle, id[], name[], setters[], setter[] (indice dans setters), prof[], d[], asc[], q[], bench[]}
+#                  d = difficulté × 10 (échelle Aurora), q = note /5 × 10, null si absente ;
+#                  bench = indices des lignes qui sont des benchmarks (Kilter : « vérifiés »)
+#   all.json       {id[], name[], setters[], setter[], prof[]} : tous les blocs
+#   d/<n>.json     {id court: [nom, ouvreur, prises [[trou, rôle]…], stats [[angle, d, répétitions, q, benchmark]…]]}
+# id court = plus petit préfixe unique de l'id (au moins 8 caractères) ; paquet = fnv1a(id court) % chunks.
+# prof = profil des prises de main, ex. "e4j2" = 4 réglettes, 2 bacs (lettres de TYPE_CODES).
+TYPE_CODES = (("edge", "e"), ("jug", "j"), ("sloper", "s"), ("pinch", "p"), ("pocket", "o"),
+              ("volume", "v"), ("foot_chip", "f"))
+HAND_ROLES = {"start", "hand", "finish"}
+CHUNK_SIZE = 320          # blocs visés par paquet de détail (≈ 20 ko compressé pour la Kilter)
+MIN_ID_LEN = 8
+
+
+def fnv1a(s):
+    """FNV-1a 32 bits sur l'UTF-8 de s (même calcul que chunkOf dans src/data.js)."""
+    h = 0x811c9dc5
+    for b in s.encode("utf-8"):
+        h = ((h ^ b) * 0x01000193) & 0xffffffff
+    return h
+
+
+def short_id_len(ids):
+    longest = max((len(i) for i in ids), default=0)
+    for n in range(min(MIN_ID_LEN, longest), longest + 1):
+        if len({i[:n] for i in ids}) == len(ids):
+            return n
+    return longest
+
+
+def hold_profile(c, hole_types):
+    counts = {}
+    for p, r in c["holds"]:
+        t = hole_types.get(p)
+        if r in HAND_ROLES and t:
+            counts[t] = counts.get(t, 0) + 1
+    return "".join(f"{code}{counts[t]}" for t, code in TYPE_CODES if counts.get(t))
+
+
+def tenth(x):
+    return None if x is None else int(round(x * 10))
+
+
+def split_climbs(cl, hole_types):
+    """Contenu du dossier climbs/<board>/ : ({chemin relatif: données}, descripteur partiel)."""
+    L = short_id_len([c["id"] for c in cl])
+    sid = [c["id"][:L] for c in cl]
+    prof = [hold_profile(c, hole_types) for c in cl]
+
+    def columns(idx):
+        setters, sidx = {}, []
+        for i in idx:
+            sidx.append(setters.setdefault(cl[i]["setter"], len(setters)))
+        return {"id": [sid[i] for i in idx], "name": [cl[i]["name"] for i in idx],
+                "setters": list(setters), "setter": sidx, "prof": [prof[i] for i in idx]}
+
+    files, by_angle = {}, {}
+    for i, c in enumerate(cl):
+        for s in c["stats"]:
+            if s[0] is not None:
+                by_angle.setdefault(s[0], []).append((i, s))
+    for a in sorted(by_angle):
+        rows = by_angle[a]
+        files[f"a{a}.json"] = {"angle": a, **columns([i for i, _ in rows]),
+                               "d": [tenth(s[4]) for _, s in rows], "asc": [s[2] for _, s in rows],
+                               "q": [tenth(s[3]) for _, s in rows],
+                               "bench": [k for k, (_, s) in enumerate(rows) if s[5]]}
+    files["all.json"] = columns(range(len(cl)))
+    # puissance de deux la plus proche : le nombre de paquets ne change pas à chaque nuit avec quelques blocs de plus
+    n_chunks = 1 << max(0, round(math.log2(len(cl) / CHUNK_SIZE))) if cl else 1
+    chunks = {}
+    for i, c in enumerate(cl):
+        chunks.setdefault(fnv1a(sid[i]) % n_chunks, {})[sid[i]] = [
+            c["name"], c["setter"], c["holds"], [[s[0], tenth(s[4]), s[2], tenth(s[3]), s[5]] for s in c["stats"]]]
+    for n, d in sorted(chunks.items()):
+        files[f"d/{n}.json"] = d
+    return files, {"count": len(cl), "idLen": L, "chunks": n_chunks,
+                   "angles": {str(a): len(r) for a, r in sorted(by_angle.items())}}
+
+
+def write_climbs_dir(out_dir, key, files, desc):
+    """Écrit climbs/<board>/ dans un dossier temporaire puis le met en place d'un coup (anciens paquets supprimés)."""
+    base = os.path.join(out_dir, "climbs")
+    tmp, final = os.path.join(base, f".{key}.tmp"), os.path.join(base, key)
+    shutil.rmtree(tmp, ignore_errors=True)
+    sizes = {rel: write_json(os.path.join(tmp, rel), data) for rel, data in files.items()}
+    write_json(os.path.join(tmp, "meta.json"), desc)
+    shutil.rmtree(final, ignore_errors=True)
+    os.replace(tmp, final)
+    legacy = os.path.join(base, f"{key}.json")                 # ancien fichier unique (avant le découpage)
+    if os.path.exists(legacy):
+        os.remove(legacy)
+    angle_sizes = {rel: n for rel, n in sizes.items() if re.fullmatch(r"a-?\d+\.json", rel)}
+    if angle_sizes:
+        big = max(angle_sizes, key=angle_sizes.get)
+        log(f"  {len(sizes)} fichiers de blocs ; le plus gros : {big} ({angle_sizes[big] / 1e3:.0f} ko), "
+            f"all.json {sizes.get('all.json', 0) / 1e3:.0f} ko")
+    return sum(sizes.values())
+
+
+def climbs_desc(key, files_desc, generated, stamp):
+    return {"dir": f"climbs/{key}/", "v": re.sub(r"\D", "", generated), "snapshot": stamp, **files_desc}
 
 
 # ------------------------------------------------------------------------------ main
@@ -427,7 +538,7 @@ def main():
     ap.add_argument("--boards", default="all", help="liste séparée par des virgules, ou 'all'")
     ap.add_argument("--out-dir", default=os.path.join(ROOT, "public", "data"), help="dossier de sortie du site")
     ap.add_argument("--out", default=None, help="écrire plutôt un fichier unique importable (format 2)")
-    ap.add_argument("--limit", type=int, default=2000, help="blocs par board (0 = tous)")
+    ap.add_argument("--limit", type=int, default=0, help="blocs par board (0 = tous)")
     ap.add_argument("--min-ascents", type=int, default=3)
     ap.add_argument("--no-climbs", action="store_true", help="géométrie seule ; garde les blocs déjà générés")
     ap.add_argument("--cache", default=os.path.join(ROOT, ".cache", "board-data"))
@@ -479,16 +590,29 @@ def main():
                 log(f"  {len(cl)} blocs retenus")
             else:
                 log("  aucun snapshot pour cette board")
-        climbs_path = os.path.join(a.out_dir, "climbs", f"{k}.json")
-        kept = None
-        if not man and not a.out and os.path.exists(climbs_path):      # --no-climbs : on garde les blocs existants
-            kept = json.load(open(climbs_path, encoding="utf-8"))
-            cl_for_angles = kept.get("climbs", [])
+        hole_types = {h[0]: h[4] for h in geo["holes"]}
+        desc, size = None, 0
+        if not a.out:
+            meta_path = os.path.join(a.out_dir, "climbs", k, "meta.json")
+            legacy_path = os.path.join(a.out_dir, "climbs", f"{k}.json")
+            if cl:
+                files, fd = split_climbs(cl, hole_types)
+                desc = climbs_desc(k, fd, generated, stamp)
+                size = write_climbs_dir(a.out_dir, k, files, desc)
+            elif not man and os.path.exists(meta_path):                 # --no-climbs : on garde les blocs existants
+                desc = json.load(open(meta_path, encoding="utf-8"))
+            elif not man and os.path.exists(legacy_path):               # ancien fichier unique : on le découpe
+                old = json.load(open(legacy_path, encoding="utf-8"))
+                files, fd = split_climbs(old.get("climbs", []), hole_types)
+                desc = climbs_desc(k, fd, generated, old.get("snapshot"))
+                size = write_climbs_dir(a.out_dir, k, files, desc)
+        if cl:
+            seen_angles = {s[0] for c in cl for s in c["stats"]}
         else:
-            cl_for_angles = cl
+            seen_angles = {int(x) for x in desc["angles"]} if desc else set()
         board = {"id": k, "name": cfg["name"], "maker": cfg["maker"], "width": geo["width"],
                  "panel": geo["panel"], "kicker": geo["kicker"],
-                 "angles": angles_from(cl_for_angles, cfg["board"]) if cl_for_angles else (
+                 "angles": angles_from(seen_angles, cfg["board"]) if seen_angles else (
                      {"list": [25, 40], "def": 40} if cfg["board"] == "moonboard"
                      else {"min": 0, "max": 70, "step": 5, "def": 40}),
                  "note": geo["note"], "approx": geo.get("approx"),
@@ -496,18 +620,11 @@ def main():
         boards.append(board)
         climbs += cl
         if not a.out:
-            size = write_json(os.path.join(a.out_dir, "boards", f"{k}.json"), board)
-            n_cl = len(cl)
-            if cl:
-                size += write_json(climbs_path, {"board": k, "generated": generated, "snapshot": stamp,
-                                                 "climbs": [{kk: v for kk, v in c.items() if kk != "board"} for c in cl]})
-            elif kept is not None:
-                n_cl, stamp = len(kept.get("climbs", [])), kept.get("snapshot")
+            size += write_json(os.path.join(a.out_dir, "boards", f"{k}.json"), board)
             entries.append({"id": k, "name": cfg["name"], "maker": cfg["maker"],
-                            "geometry": f"boards/{k}.json",
-                            "climbs": f"climbs/{k}.json" if (cl or kept is not None) else None,
+                            "geometry": f"boards/{k}.json", "climbs": desc,
                             "holes": len(geo["holes"]), "outlines": len(geo["outlines"]), "typed": typed,
-                            "climbCount": n_cl, "snapshot": stamp,
+                            "climbCount": desc["count"] if desc else 0, "snapshot": desc["snapshot"] if desc else None,
                             "holdTypesVersion": types.versions.get(cfg["board"])})
             log(f"  -> {size / 1e3:.0f} ko")
 
@@ -522,7 +639,7 @@ def main():
         entries = [e for e in old.get("boards", []) if e["id"] not in done] + entries
         order = list(BOARDS)
         entries.sort(key=lambda e: order.index(e["id"]) if e["id"] in order else 99)
-    write_json(index_path, {"format": 3, "generated": generated, "sources": sources,
+    write_json(index_path, {"format": 4, "generated": generated, "sources": sources,
                             "versions": {"boardsesh": a.ref if not a.repo_dir else "local",
                                          "cruxcoach": a.types_ref if not a.types_dir else "local"},
                             "boards": entries})

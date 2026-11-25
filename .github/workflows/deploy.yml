@@ -11,7 +11,7 @@ on:
     inputs:
       limit:
         description: "Blocs gardés par board (0 = tous)"
-        default: "2000"
+        default: "0"
 
 permissions:
   contents: read
@@ -41,7 +41,7 @@ jobs:
           restore-keys: board-data-
 
       - name: Générer les données
-        run: python3 scripts/build_board_data.py --limit "${{ github.event.inputs.limit || '2000' }}"
+        run: python3 scripts/build_board_data.py --limit "${{ github.event.inputs.limit || '0' }}"
 
       - uses: actions/setup-node@v4
         with:
@@ -51,6 +51,7 @@ jobs:
         run: |
           # versions figées par package-lock.json quand il est présent
           if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+          npm test
           npm run build
 
       - uses: actions/upload-pages-artifact@v3

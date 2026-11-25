@@ -15,6 +15,7 @@ Prérequis : Node.js 20+ et Python 3.9+ (aucune dépendance Python).
 npm install
 npm run data:geo      # géométrie des 9 boards seulement (rapide, quelques Mo)
 npm run dev           # http://localhost:5173
+npm test              # tests (Node et Python)
 ```
 
 Pour avoir aussi les blocs réels :
@@ -33,17 +34,19 @@ Tout est produit par `scripts/build_board_data.py`, dans `public/data/` (non ver
 |---|---|
 | `index.json` | Manifeste : boards, nombre de prises et de blocs, versions des sources, date |
 | `boards/<id>.json` | Géométrie : dimensions, plages d'angle et de kicker, prises (position, teinte, type, orientation), contours |
-| `climbs/<id>.json` | Blocs les plus répétés : prises et rôles, ouvreur, cotation et répétitions par angle |
+| `climbs/<id>/a<angle>.json` | Blocs grimpés à cet angle, sans les prises : nom, ouvreur, cotation, répétitions, note, profil des prises (liste et filtres) |
+| `climbs/<id>/all.json` | Tous les blocs, sans statistiques (filtre « jamais faits à cet angle », chargé seulement s'il est coché) |
+| `climbs/<id>/d/<n>.json` | Détail par paquets d'environ 300 blocs : prises et rôles, statistiques à tous les angles (chargé à l'ouverture d'un bloc) |
 
 Les sources de géométrie sont figées sur des commits précis (`BOARDSESH_REF`, `TYPES_REF` dans le script) : seuls les blocs changent chaque nuit. Pour passer à une version plus récente, la tester en local avec `--ref` / `--types-ref` puis mettre à jour la constante.
 
-Le site ne charge que la board affichée. Les téléchargements sont mis en cache dans `.cache/board-data/` et ne sont refaits que si la source a changé.
+Le site ne charge que la board affichée, la liste de l'angle choisi (moins de 1 Mo compressé pour la Kilter Original à 40°, 42 800 blocs) et le paquet du bloc ouvert. Les téléchargements sont mis en cache dans `.cache/board-data/` et ne sont refaits que si la source a changé.
 
 Options utiles du script (`npm run data -- --help` pour la liste complète) :
 
 ```bash
 npm run data -- --boards kilter-original,moonboard-2016   # mettre à jour certaines boards seulement
-npm run data -- --limit 5000                              # blocs gardés par board (0 = tous)
+npm run data -- --limit 5000                              # blocs gardés par board (0 = tous, par défaut)
 npm run data -- --out boards.json                         # fichier unique, importable dans la page
 ```
 
