@@ -6,7 +6,10 @@ import {holdGeometry, ringGeometry} from './holds/geometry.js';
 import {mergeHolds, paintHold, commitPaint, holdMaterial, pickHold} from './holds/merge.js';
 import {MAT, ROOM, buildRoom, finishTex, textSprite, matArea, faceBox, mergeStatic, steel, steelLight} from './scene/room.js';
 import {store, loadManifest, loadBoard, openClimbs, climbsAt, hasClimbsAt, loadClimb, climbKey, boardList, importData} from './data.js';
-import {GMIN, GMAX, TYPE_ORDER, gradeFont, view, holdProfile, filterClimbs, defaultFilters, activeCount, SORTS} from './ui/filters.js';
+import {GRADES, GMIN, GMAX, TYPE_ORDER, gradeFont, view, holdProfile, filterClimbs, defaultFilters, activeCount, SORTS} from './ui/filters.js';
+import {climbLeds, boardBytes} from './ble/protocol.js';
+import {bleSupported, bleAllowed, connectBoard} from './ble/connection.js';
+import {createdKey, parseCreatedKey, isCreatedKey, cycleRole, setRole, checkClimb, roleCounts, newDraftId, upsertDraft, removeDraft, sanitizeDrafts} from './editor/creations.js';
 
 const $ = id => document.getElementById(id);
 const host = $('host');
@@ -205,7 +208,7 @@ function paintClimb() {
   for (const o of litG) { o.parent && o.parent.remove(o); o.geometry.dispose(); }
   litG = [];
   const c = state.climb, inClimb = new Map(c && c.holds ? c.holds.map(([id, r]) => [id, r]) : []);
-  const dim = state.dim && !!c;
+  const dim = state.dim && !!c && !ed.on;          // en création : toutes les prises restent visibles
   for (const [id, h] of holds) {
     const role = inClimb.get(id);
     if (role) {
@@ -221,6 +224,7 @@ function paintClimb() {
   }
   for (const L of holdLayers) commitPaint(L.merged);
   invalidate();
+  bleSync();
 }
 
 /* ---------- Angle & mesures ---------- */
@@ -357,6 +361,8 @@ function buildFilterUI() {
   $('gmin').value = GMIN; $('gmax').value = GMAX;
   for (const d of [GMIN, 16, 22, 28, GMAX]) $('gScale').appendChild(el('span', null, gradeFont(d)));
   for (const [k, s] of Object.entries(SORTS)) { const o = el('option', null, s.label); o.value = k; $('sort').appendChild(o); }
+  $('eGrade').appendChild(el('option', null, 'Cotation ?')).value = '';
+  for (const [d, f, v] of GRADES) { const o = el('option', null, f); o.value = d; o.title = `${f} (${v})`; $('eGrade').appendChild(o); }
   for (const t of STYLE_TYPES) {
     const b = el('button', 'chip'); b.type = 'button'; b.dataset.t = t; b.setAttribute('aria-pressed', 'false');
     const i = el('i'); i.style.background = dotColor(t); b.append(i, capital(TYPES[t].plural)); $('fTypes').appendChild(b);
@@ -465,6 +471,7 @@ function renderMore() {
   if (left > 0) $('moreRes').textContent = `Afficher plus · ${nf.format(left)} restant${left > 1 ? 's' : ''}`;
 }
 function markCurrent() {
+  for (const r of $('mineList').children) r.setAttribute('aria-current', String(!!state.climb && state.climb.draftId === r.dataset.draft));
   for (const r of $('list').children) if (r.dataset.id) r.setAttribute('aria-current', String(!!state.climb && r.dataset.id === state.climb.id));
 }
 
@@ -479,6 +486,21 @@ function renderFiche() {
   $('vClimb').disabled = !(c && c.holds);
   if (!c || !state.board) { box.hidden = true; if (mq.matches) relayout(); return; }
   box.hidden = false;
+  const made = !!c.created;
+  $('aFav').hidden = made; $('fPrev').hidden = made; $('fNext').hidden = made;
+  $('aEdit').hidden = !made; $('aSaveCopy').hidden = !made || !!c.draftId; $('aDelete').hidden = !made || !c.draftId;
+  disarmDelete();
+  if (made) {                                       // bloc créé : pas de statistiques, actions de création
+    $('fName').textContent = c.name;
+    $('fGrade').textContent = c.gradeD ? `${shortGrade(c.grade)} proposé` : 'non coté';
+    $('fMeta').textContent = [c.draftId ? 'Mon bloc, gardé dans ce navigateur' : 'Bloc partagé par lien',
+      c.from ? `variante de ${c.from}` : '', plural(c.holds.length, 'prise')].filter(Boolean).join(' · ');
+    const st = $('fStyle'), sb = styleBadge(holdProfile(c, typeOf)); st.textContent = '';
+    if (sb) st.append('Style', sb);
+    $('fAngles').hidden = true; $('fAllAngles').hidden = true;
+    if (mq.matches) relayout();
+    return;
+  }
   const v = view(c, state.angle), [, bw] = benchWord();
   $('fName').textContent = c.name;
   const g = $('fGrade'); g.textContent = v.here ? `${shortGrade(v.grade)} à ${state.angle}°` : `pas fait à ${state.angle}°`;
@@ -518,20 +540,184 @@ function renderFiche() {
   $('aFav').setAttribute('aria-pressed', String(fav)); $('aFav').textContent = fav ? '♥ Dans vos favoris' : '♡ Ajouter aux favoris';
 }
 
+/* ---------- Créer un bloc ---------- */
+// Toucher une prise fait défiler son rôle (départ → main → top → pied → retirée), ou pose le rôle choisi dans
+// la palette. Chaque changement est gardé tout seul dans « Mes blocs » (ce navigateur) ; le lien contient
+// les prises (#board/b:<code>/<angle>/<nom>) et s'ouvre sans serveur.
+const DRAFTS_KEY = 'board3d:creations';
+let drafts = (() => { try { return sanitizeDrafts(JSON.parse(localStorage.getItem(DRAFTS_KEY))); } catch { return []; } })();
+const saveDrafts = () => { try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts)); } catch { /* stockage indisponible */ } };
+const gradeLabel = d => { const g = GRADES.find(x => x[0] === d); return g ? `${g[1]}/${g[2]}` : ''; };
+const plural = (n, w, ws = w + 's') => `${n} ${n > 1 ? ws : w}`;
+// Un bloc créé se présente comme un bloc du catalogue (prises, nom), sans statistiques
+function createdClimb({holds: hs, name, grade, draftId, from}) {
+  return {id: createdKey(hs, grade), board: state.board.id, name: name || 'Bloc sans nom', setter: '', holds: hs,
+    created: true, grade: gradeLabel(grade), gradeD: grade || null, draftId: draftId || null, from: from || null};
+}
+const climbFromDraft = d => createdClimb({holds: d.holds, name: d.name, grade: d.grade, draftId: d.id, from: d.from});
+// Bloc reçu par lien : prises inconnues de cette board ignorées ; déjà dans « Mes blocs » -> ce brouillon
+function sharedClimb(key, name) {
+  const p = parseCreatedKey(key); if (!p) return null;
+  const hs = p.holds.filter(h => holds.has(h[0])); if (!hs.length) return null;
+  const mine = drafts.find(d => d.board === state.board.id && createdKey(d.holds, d.grade) === createdKey(hs, p.grade));
+  return mine ? climbFromDraft(mine) : createdClimb({holds: hs, grade: p.grade, name});
+}
+
+const ed = {on: false, holds: [], name: '', grade: null, draftId: null, from: null, role: 'auto', undo: []};
+function openEditor(init = {}) {
+  if (!state.board) return;
+  closeSheet(); clearMeasure();
+  Object.assign(ed, {on: true, holds: (init.holds || []).filter(h => holds.has(h[0])).map(h => [h[0], h[1]]),
+    name: init.name || '', grade: init.grade || null, draftId: init.draftId || newDraftId(), from: init.from || null, role: 'auto', undo: []});
+  document.body.classList.add('editing'); $('editor').hidden = false;
+  $('eName').value = ed.name; $('eGrade').value = ed.grade || '';
+  edRefresh(!!ed.holds.length);
+  if (mq.matches) relayout();
+  if (!mq.matches && !ed.holds.length) $('eName').focus({preventScroll: true});
+}
+function edPersist() {
+  if (!ed.holds.length) drafts = removeDraft(drafts, ed.draftId);          // rien à garder
+  else drafts = upsertDraft(drafts, {id: ed.draftId, board: state.board.id, name: ed.name, holds: ed.holds, grade: ed.grade, from: ed.from});
+  saveDrafts(); renderMine();
+}
+function edRefresh(persist = true) {
+  state.climb = createdClimb(ed);
+  paintClimb(); renderEditor(); updateHash();
+  if (persist) edPersist();
+}
+function edTap(id) {
+  const cur = (ed.holds.find(h => h[0] === id) || [])[1];
+  const role = ed.role === 'auto' ? cycleRole(cur) : (cur === ed.role ? null : ed.role);
+  ed.undo.push(ed.holds); if (ed.undo.length > 100) ed.undo.shift();
+  ed.holds = setRole(ed.holds, id, role);
+  edRefresh();
+}
+function edUndo() { if (ed.undo.length) { ed.holds = ed.undo.pop(); edRefresh(); } }
+function closeEditor() {
+  if (!ed.on) return;
+  ed.on = false; document.body.classList.remove('editing'); $('editor').hidden = true;
+  edPersist();
+  const d = drafts.find(x => x.id === ed.draftId);
+  state.climb = d ? climbFromDraft(d) : null;
+  paintClimb(); renderFiche(); markCurrent(); updateHash();
+  if (mq.matches) relayout();
+}
+function renderEditor() {
+  const chk = checkClimb(ed.holds), n = chk.n, st = $('eStat'), hint = $('eHint');
+  st.textContent = '';
+  if (ed.holds.length) {
+    st.append(el('span', null, [plural(n.start, 'départ'), plural(n.hand, 'main'), plural(n.finish, 'top'), plural(n.foot, 'pied')].join(' · ')));
+    const sb = styleBadge(holdProfile(state.climb, typeOf)); if (sb) st.append(sb);
+  }
+  hint.className = 'ehint' + (ed.holds.length ? (chk.ok ? ' ok' : ' warn') : '');
+  hint.textContent = !ed.holds.length ? 'Touchez les prises sur la board : départ → main → top → pied → retirée.'
+    : chk.ok ? 'Bloc complet, gardé dans « Mes blocs » de ce navigateur.' : chk.issues[0];
+  $('eUndo').disabled = !ed.undo.length; $('eClear').disabled = !ed.holds.length; $('eShare').disabled = !ed.holds.length;
+  $('vClimb').disabled = !ed.holds.length;
+  for (const b of $('eRoles').children) b.setAttribute('aria-pressed', String(b.dataset.r === ed.role));
+}
+// « Mes blocs » de la board courante, dans le panneau
+function renderMine() {
+  const list = state.board ? drafts.filter(d => d.board === state.board.id) : [], box = $('mineList');
+  $('mineBox').hidden = !list.length; $('mineCount').textContent = list.length ? `(${list.length})` : '';
+  box.textContent = '';
+  for (const d of list) {
+    const c = climbFromDraft(d), n = roleCounts(d.holds);
+    const row = el('button', 'row'); row.type = 'button'; row.setAttribute('role', 'listitem'); row.dataset.draft = d.id;
+    row.setAttribute('aria-current', String(!!state.climb && state.climb.draftId === d.id));
+    const name = el('span', 'rname', c.name); if (ed.on && ed.draftId === d.id) name.append(el('span', 'mineflag', 'en cours'));
+    const meta = el('span', 'rmeta'), sb = styleBadge(holdProfile(c, typeOf)); if (sb) meta.append(sb);
+    meta.append(el('span', 'txt', [plural(d.holds.length, 'prise'), checkClimb(d.holds).ok ? '' : 'incomplet', d.from ? `variante de ${d.from}` : ''].filter(Boolean).join(' · ')));
+    row.append(name, el('span', 'rgrade', c.gradeD ? shortGrade(c.grade) : '—'), meta);
+    row.title = `${n.start} départ, ${n.hand} mains, ${n.finish} top, ${n.foot} pieds`;
+    row.addEventListener('click', () => { selectClimb(c); closeSheet(); });
+    box.appendChild(row);
+  }
+}
+
+/* ---------- Allumer la board (Bluetooth) ---------- */
+// Une fois connectée, la board allume le bloc affiché (y compris pendant la création) ; « Éteindre » envoie
+// une trame vide. Le choix du boîtier passe par le sélecteur du navigateur (geste de l'utilisateur requis).
+let ble = null, bleBusy = false, bleTimer = 0, bleLast = '';
+function bleStatus(text, warn) { const p = $('bleStat'); p.textContent = text || ''; p.className = 'blestat' + (warn ? ' warn' : ''); }
+function renderBle() {
+  const on = !!(ble && ble.connected), btn = $('bleBtn');
+  btn.classList.toggle('on', on); $('mBoard').classList.toggle('ble-on', on);
+  $('bleOff').hidden = !on;
+  const proto = state.board && state.board.ble && state.board.ble.protocol;
+  if (!bleSupported()) { btn.disabled = true; $('bleLab').textContent = 'Allumer la board'; bleStatus('Bluetooth indisponible dans ce navigateur : Chrome ou Edge sur ordinateur ou Android (sur iPhone : appli Bluefy).'); return; }
+  if (!bleAllowed()) { btn.disabled = true; bleStatus('Bluetooth : ouvrez le site en https (ou sur localhost).'); return; }
+  btn.disabled = bleBusy || (!on && !proto);
+  $('bleLab').textContent = bleBusy ? 'Connexion…' : on ? 'Déconnecter' : 'Allumer la board';
+  if (!on && !bleBusy && state.board && !proto) bleStatus('Pas de LED connues pour cette board.');
+}
+// Bloc courant -> board (regroupe les changements rapides ; n'envoie pas deux fois le même état)
+function bleSync(force) {
+  if (!ble || !ble.connected || !state.board) return;
+  clearTimeout(bleTimer);
+  bleTimer = setTimeout(() => {
+    const c = state.climb, b = state.board;
+    const leds = c && c.holds ? climbLeds(b, c.holds) : [];
+    if (c && c.holds && c.holds.length && !leds.length) { bleStatus('Ce bloc n\'a aucune prise avec une LED connue : rien n\'est allumé.', true); return; }
+    const bytes = boardBytes(b, leds, ble.info.api), key = bytes.join(',');
+    if (!force && key === bleLast) return;
+    bleLast = key;
+    ble.send(bytes).then(() => {
+      if (ble && ble.connected) bleStatus(leds.length ? `${ble.info.display || 'Board'} : ${plural(leds.length, 'prise allumée', 'prises allumées')}` : `${ble.info.display || 'Board'} : éteinte`, bleMismatch());
+    }).catch(err => { bleLast = ''; bleStatus(`Envoi impossible : ${err.message}`, true); });
+  }, 120);
+}
+// Le boîtier annonce un nom de fabricant différent de la board choisie : on prévient
+function bleMismatch() {
+  const want = state.board && state.board.ble && state.board.ble.name;
+  return !!(ble && want && ble.protocol === 'aurora' && ble.name && !ble.name.toLowerCase().includes(want.toLowerCase()));
+}
+async function bleConnect() {
+  if (ble && ble.connected) { ble.disconnect(); return; }
+  const proto = state.board && state.board.ble && state.board.ble.protocol;
+  if (!proto) return;
+  bleBusy = true; bleStatus('Choisissez votre board dans la liste du navigateur…'); renderBle();
+  try {
+    ble = await connectBoard(proto, {onDisconnect: c => { if (ble === c) { ble = null; bleLast = ''; bleStatus('Board déconnectée.'); renderBle(); } }});
+    bleLast = '';
+    const api = ble.protocol === 'aurora' ? ` · API v${ble.info.api >= 3 ? 3 : 2}` : '';
+    bleStatus(`Connectée à ${ble.name || 'la board'}${api}`);
+    if (bleMismatch()) bleStatus(`Le boîtier s'annonce « ${ble.name} » : vérifiez que le modèle choisi est bien une ${state.board.ble.name}.`, true);
+    bleSync(true);
+  } catch (err) {
+    ble = null;
+    bleStatus(err && err.name === 'NotFoundError' ? '' : `Connexion impossible : ${err.message}`, err && err.name !== 'NotFoundError');
+  } finally { bleBusy = false; renderBle(); }
+}
+$('bleBtn').addEventListener('click', bleConnect);
+$('bleOff').addEventListener('click', () => {
+  if (!ble || !ble.connected) return;
+  const bytes = boardBytes(state.board, [], ble.info.api); bleLast = bytes.join(',');
+  ble.send(bytes).then(() => bleStatus(`${ble.info.display || 'Board'} : éteinte`)).catch(err => bleStatus(`Envoi impossible : ${err.message}`, true));
+});
+
 /* ---------- Liens partageables : #board/bloc/angle ---------- */
-const currentHash = () => state.board ? '#' + [state.board.id, state.climb ? encodeURIComponent(state.climb.id) : '', state.angle].join('/') : '';
+function currentHash() {
+  if (!state.board) return '';
+  const c = state.climb, made = c && c.created && c.holds.length;
+  const parts = [state.board.id, !c ? '' : c.created ? (made ? c.id : '') : encodeURIComponent(c.id), state.angle];
+  if (made && c.name && c.name !== 'Bloc sans nom') parts.push(encodeURIComponent(c.name));
+  return '#' + parts.join('/');
+}
 function updateHash() {
   const h = currentHash();
   if (h && location.hash !== h) history.replaceState(history.state, '', h);
 }
 function parseHash() {
-  const [b, c, a] = location.hash.replace(/^#\/?/, '').split('/');
-  return {board: b || null, climb: c ? decodeURIComponent(c) : null, angle: a && !isNaN(+a) ? +a : null};
+  const [b, c, a, n] = location.hash.replace(/^#\/?/, '').split('/');
+  const dec = x => { try { return decodeURIComponent(x); } catch { return x; } };
+  return {board: b || null, climb: c ? dec(c) : null, angle: a && !isNaN(+a) ? +a : null, name: n ? dec(n).slice(0, 60) : ''};
 }
 
 // Le détail (prises) d'un bloc découpé est chargé avant de l'afficher ; une sélection plus récente annule celle-ci
 let climbSeq = 0;
 async function selectClimb(c) {
+  if (ed.on) closeEditor();
   const seq = ++climbSeq;
   if (c && !c.holds) {
     try { c = (await loadClimb(c.board, c.id)) || c; } catch (err) { console.warn('Détail du bloc indisponible', err); }
@@ -547,6 +733,7 @@ const findClimb = (board, id) => loadClimb(board, id).catch(err => { console.war
 // Chargement à la demande de la géométrie et des blocs ; une sélection plus récente annule la précédente
 let selectSeq = 0;
 async function selectBoard(id, want = {}) {
+  if (ed.on) closeEditor();
   const seq = ++selectSeq;
   $('board').value = id;
   $('bName').textContent = 'Chargement…'; $('count').textContent = '—';
@@ -554,7 +741,9 @@ async function selectBoard(id, want = {}) {
   try { b = await loadBoard(id); await openClimbs(id); }
   catch (err) { if (seq === selectSeq) { $('bName').textContent = 'Board indisponible'; $('bMeta').textContent = err.message; } return; }
   if (seq !== selectSeq) return;
-  state.board = b; state.climb = null; syncFavs();
+  state.board = b; state.climb = null; syncFavs(); renderMine();
+  if (ble && ble.connected && (!b.ble || b.ble.protocol !== ble.protocol)) { ble.disconnect(); ble = null; bleStatus('Board déconnectée : protocole différent pour ce modèle.'); }
+  renderBle();
   prefs.board = id; savePrefs();
   $('boardNote').textContent = [b.note, b.approx].filter(Boolean).join(' · ');
   buildBoard(b); angleUI(b);
@@ -563,8 +752,9 @@ async function selectBoard(id, want = {}) {
   renderBoardSummary();
   applyAngle(want.angle ?? bp.angle ?? b.angles.def);
   goView(state.view, true);
-  const [, wanted] = await Promise.all([computeResults(), want.climb ? findClimb(id, want.climb) : null]);
-  if (seq !== selectSeq) return;
+  const [, wanted] = await Promise.all([computeResults(),
+    !want.climb ? null : isCreatedKey(want.climb) ? sharedClimb(want.climb, want.name) : findClimb(id, want.climb)]);
+  if (seq !== selectSeq || ed.on) return;          // création commencée pendant le chargement : on n'y touche pas
   await selectClimb(wanted || (results[0] && results[0].c) || null);
 }
 
@@ -689,7 +879,7 @@ function applyViewOffset() {
   if (!mq.matches) inset.L = Math.min(W * 0.4, $('boardCard').getBoundingClientRect().right - hr.left + 8);
   else {
     inset.T = Math.max(0, document.querySelector('.toolbar').getBoundingClientRect().bottom - hr.top + 6);
-    const fi = $('fiche');
+    const fi = ed.on ? $('editor') : $('fiche');        // en création : la carte de création en bas
     if (!fi.hidden && !fi.classList.contains('open')) lastB = Math.max(0, hr.bottom - fi.getBoundingClientRect().top + 6);
     inset.B = fi.hidden ? 0 : lastB;
   }
@@ -796,6 +986,7 @@ cv.addEventListener('pointerup', e => {
   endTouch(e);
   if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 5) return;
   const hit = pickAt(e.clientX, e.clientY), now = performance.now();
+  if (ed.on) { if (hit) edTap(hit.id); return; }
   const dbl = lastTap && now - lastTap.t < 350 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 24;
   lastTap = dbl ? null : {t: now, x: e.clientX, y: e.clientY};
   if (dbl) { hideNavHint(); if (hit) zoomToHold(hit.id); else zoomAt(e.clientX, e.clientY, 0.5); return; }
@@ -885,6 +1076,51 @@ $('fUnclimbed').addEventListener('change', e => { F.unclimbed = e.target.checked
 $('sort').addEventListener('change', e => { F.sort = e.target.value; computeResults(); });
 $('fReset').addEventListener('click', resetFilters);
 $('moreRes').addEventListener('click', renderMore);
+// Création d'un bloc
+$('newClimb').addEventListener('click', () => openEditor());
+$('aVariant').addEventListener('click', () => {
+  const c = state.climb; if (!c || !c.holds) return;
+  openEditor({holds: c.holds, name: `${c.name} (variante)`.slice(0, 60), grade: c.gradeD || null, from: c.name});
+});
+$('aEdit').addEventListener('click', () => {
+  const c = state.climb; if (!c || !c.created) return;
+  openEditor({holds: c.holds, name: c.name === 'Bloc sans nom' ? '' : c.name, grade: c.gradeD, draftId: c.draftId, from: c.from});
+});
+$('aSaveCopy').addEventListener('click', () => {
+  const c = state.climb; if (!c || !c.created || c.draftId) return;
+  const d = {id: newDraftId(), board: state.board.id, name: c.name === 'Bloc sans nom' ? '' : c.name, holds: c.holds, grade: c.gradeD, from: c.from};
+  drafts = upsertDraft(drafts, d); saveDrafts(); renderMine();
+  state.climb = climbFromDraft(drafts[0]); renderFiche(); markCurrent();
+});
+// Supprimer : deuxième clic pour confirmer (pas de fenêtre de confirmation)
+let deleteTimer = 0;
+function disarmDelete() { clearTimeout(deleteTimer); const b = $('aDelete'); b.dataset.armed = ''; b.textContent = 'Supprimer'; }
+$('aDelete').addEventListener('click', () => {
+  const c = state.climb, b = $('aDelete'); if (!c || !c.draftId) return;
+  if (!b.dataset.armed) { b.dataset.armed = '1'; b.textContent = 'Confirmer la suppression'; deleteTimer = setTimeout(disarmDelete, 4000); return; }
+  drafts = removeDraft(drafts, c.draftId); saveDrafts(); renderMine();
+  state.climb = null; paintClimb(); renderFiche(); updateHash();
+});
+$('eName').addEventListener('input', e => { ed.name = e.target.value.trim(); edRefresh(); });
+$('eGrade').addEventListener('change', e => { ed.grade = +e.target.value || null; edRefresh(); });
+$('eRoles').addEventListener('click', e => { const b = e.target.closest('button'); if (b) { ed.role = b.dataset.r; renderEditor(); } });
+$('eUndo').addEventListener('click', edUndo);
+$('eClear').addEventListener('click', () => { ed.undo.push(ed.holds); ed.holds = []; edRefresh(); });
+$('eShare').addEventListener('click', async () => {
+  updateHash();
+  const bt = $('eShare');
+  try { await navigator.clipboard.writeText(location.href); bt.textContent = 'Lien copié'; }
+  catch { bt.textContent = 'Lien dans la barre d\'adresse'; }
+  setTimeout(() => { bt.textContent = 'Copier le lien'; }, 2200);
+});
+$('eDone').addEventListener('click', closeEditor);
+document.addEventListener('keydown', e => {
+  if (!ed.on || $('fSheet').open || sheetOpen) return;
+  const typing = e.target.closest && e.target.closest('input, select, textarea');
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); edUndo(); }
+  else if (e.key === 'Escape') closeEditor();
+});
+
 // Téléphone : feuilles, fiche réduite, bloc précédent / suivant
 $('mBoard').addEventListener('click', () => openSheet('board'));
 $('mBlocs').addEventListener('click', () => openSheet('blocs'));
@@ -940,7 +1176,9 @@ window.addEventListener('hashchange', async () => {
   else if (state.board) {
     const id = state.board.id;
     if (h.angle != null && h.angle !== state.angle) applyAngle(h.angle);
-    if (h.climb && (!state.climb || state.climb.id !== climbKey(id, h.climb))) {
+    if (h.climb && isCreatedKey(h.climb)) {
+      if (!state.climb || state.climb.id !== h.climb) { const c = sharedClimb(h.climb, h.name); if (c) selectClimb(c); }
+    } else if (h.climb && (!state.climb || state.climb.id !== climbKey(id, h.climb))) {
       const c = await findClimb(id, h.climb);
       if (c && state.board && state.board.id === id) selectClimb(c);
     }
@@ -989,7 +1227,7 @@ if (import.meta.env && import.meta.env.DEV) window.__board3d = {renderer, scene,
 requestAnimationFrame(loop);
 
 async function start() {
-  buildFilterUI(); syncFilterUI();
+  buildFilterUI(); syncFilterUI(); renderBle();
   if (matchMedia('(pointer: coarse)').matches) $('navHint').textContent = 'Glisser : se déplacer · Pincer : zoomer · Deux doigts : tourner · Double-tap sur une prise : zoomer dessus';
   if (!prefs.navSeen) $('navHint').hidden = false;
   $('finish').value = state.finish; setToggle('tDim', state.dim); setToggle('tType', state.byType); $('typeLegend').hidden = !state.byType;

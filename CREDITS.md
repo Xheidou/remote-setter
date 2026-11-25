@@ -7,6 +7,7 @@
 | Position des trous, tailles de board, contours détourés des prises | [Boardsesh](https://github.com/boardsesh/boardsesh) — `packages/board-constants`, `packages/shared/board-art-geometry` | Code sous Apache-2.0 |
 | Blocs et statistiques (cotation, répétitions, qualité par angle) | Snapshots publics nocturnes de Boardsesh | Voir `LEGAL.md` de Boardsesh : télécharger les snapshots et héberger le résultat soi-même ; ne pas utiliser leurs serveurs comme backend d'une app publique |
 | Types de prises et orientations | [CruxCoach](https://github.com/CruxCoach/CruxCoach), dossier `androidApp/src/main/assets/hold_types` | CC BY 4.0 — « Hold types by CruxCoach (https://github.com/CruxCoach/CruxCoach), CC BY 4.0 » |
+| Positions des LED et protocoles Bluetooth (Aurora, MoonBoard) | [Boardsesh](https://github.com/boardsesh/boardsesh) — `packages/board-constants/src/generated/led-placements-data.ts`, `docs/boards/*_BLUETOOTH_PROTOCOL_SPEC.md` | Code et documentation sous Apache-2.0 ; implémentation propre à ce projet (`src/ble/`) |
 | Dimensions physiques des boards et plages du kicker | Fabricants (Kilter, Tension Climbing, Moon Climbing) | Valeurs reportées dans `scripts/build_board_data.py` |
 
 Les blocs sont créés par leurs ouvreurs ; leur nom est affiché avec chaque bloc.

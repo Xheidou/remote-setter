@@ -63,6 +63,19 @@ MANIFESTS = [
 ]
 HOLES_PATH = "packages/board-constants/src/generated/hole-placements/{board}.cjs"
 OUTLINE_PATH = "packages/shared/board-art-geometry/src/generated/{board}/{layout}-{size}.cjs"
+# Position de LED de chaque prise, par layout et taille (boards Aurora) : LED_PLACEMENTS[board]['layout-taille']
+LEDS_PATH = "packages/board-constants/src/generated/led-placements-data.ts"
+# Bluetooth (d'après docs/boards/*_BLUETOOTH_PROTOCOL_SPEC.md de Boardsesh) : protocole, nom annoncé par le
+# boîtier, LED par prise (budget de puissance de l'API v2) et couleur de LED de chaque rôle
+AURORA_TENSION_COLORS = {"start": "00FF00", "hand": "0000FF", "finish": "FF0000", "foot": "FF00FF"}
+BLE = {
+    "kilter": {"protocol": "aurora", "name": "Kilter", "ledsPerHold": 2,
+               "colors": {"start": "00FF00", "hand": "00FFFF", "finish": "FF00FF", "foot": "FFAA00"}},
+    "tension": {"protocol": "aurora", "name": "Tension", "ledsPerHold": 1, "colors": AURORA_TENSION_COLORS},
+    "decoy": {"protocol": "aurora", "name": "Decoy", "ledsPerHold": 1, "colors": AURORA_TENSION_COLORS},
+    "grasshopper": {"protocol": "aurora", "name": "Grasshopper", "ledsPerHold": 1, "colors": AURORA_TENSION_COLORS},
+    "moonboard": {"protocol": "moon", "name": "MoonBoard"},
+}
 # Types de prises (jug, edge, sloper, pinch, pocket, volume, foot_chip) + orientation : CruxCoach, CC BY 4.0
 TYPES_RAW = "https://raw.githubusercontent.com/CruxCoach/CruxCoach/{ref}/androidApp/src/main/assets/hold_types/{board}.json"
 TYPES_CREDIT = "Hold types by CruxCoach (https://github.com/CruxCoach/CruxCoach), CC BY 4.0"
@@ -213,6 +226,22 @@ def parse_hole_placements(txt):
     return out
 
 
+def parse_led_placements(txt, board, key):
+    """led-placements-data.ts -> {placementId: position} pour LED_PLACEMENTS[board][key] ('layout-taille')."""
+    m = re.search(r"^  " + re.escape(board) + r": \{\n(.*?)^  \}", txt or "", re.S | re.M)
+    if not m:
+        return {}
+    b = re.search(r"'" + re.escape(key) + r"': \{(.*?)\}", m.group(1), re.S)
+    return {int(p): int(v) for p, v in re.findall(r"(\d+): (\d+)", b.group(1))} if b else {}
+
+
+def moon_led(pid, rows=18, cols=11):
+    """MoonBoard : prise 1..198 (A1, B1… ligne par ligne) -> LED d'une guirlande en serpentin par colonne."""
+    z = pid - 1
+    col, row = z % cols, z // cols
+    return col * rows + (row if col % 2 == 0 else rows - 1 - row)
+
+
 def parse_outline_shard(txt):
     """board-art-geometry/<board>/<layout>-<size>.cjs -> (outlines{id:[...]}, lightness{id:L})"""
     outlines, light, section = {}, {}, None
@@ -302,7 +331,8 @@ def build_geometry(key, cfg, repo, types):
             holes.append([pid, round(x, 3), round(y0 + row * MOON["pitch"], 3), round(light.get(pid, 0.5), 3), *tag(pid)])
             outl[str(pid)] = outline_to_m(outlines[pid], r_m)
         return dict(width=MOON["width"], panel=MOON["panel"], kicker=MOON["kicker"], note=MOON["note"],
-                    holes=holes, outlines=outl, approx="positions de grille reconstruites (pas de 20 cm)")
+                    holes=holes, outlines=outl, approx="positions de grille reconstruites (pas de 20 cm)",
+                    leds={str(h[0]): moon_led(h[0]) for h in holes})
 
     placements = parse_hole_placements(repo.text(HOLES_PATH.format(board=board)))
     el, er, eb, et = cfg["edges"]
@@ -318,8 +348,12 @@ def build_geometry(key, cfg, repo, types):
                           round((y - cfg["kicker_top"]) * IN, 3), round(light.get(pid, 0.5), 3), *tag(pid)])
             if pid in outlines:
                 outl[str(pid)] = outline_to_m(outlines[pid], r_m)
+    ledmap = parse_led_placements(repo.text(LEDS_PATH), board, f"{cfg['layout']}-{cfg['size']}")
+    leds = {str(h[0]): ledmap[h[0]] for h in holes if h[0] in ledmap}
+    if not leds:
+        log(f"  ! pas de positions de LED pour {key} : allumage Bluetooth indisponible")
     return dict(width=round(cfg["width_in"] * IN, 3), panel=round(cfg["panel_in"] * IN, 3),
-                kicker=cfg["kicker"], note=cfg["note"], holes=holes, outlines=outl)
+                kicker=cfg["kicker"], note=cfg["note"], holes=holes, outlines=outl, leds=leds)
 
 
 # ------------------------------------------------------------------------------ blocs
@@ -583,7 +617,7 @@ def check_manifest(boards, old, full=True, climbs=True):
         o = prev.get(e["id"])
         if not o:
             continue
-        for k, label in (("holes", "prises"), ("outlines", "contours"), ("typed", "prises avec un type")):
+        for k, label in (("holes", "prises"), ("outlines", "contours"), ("typed", "prises avec un type"), ("leds", "LED")):
             if e.get(k, 0) < o.get(k, 0):
                 problems.append(f"{e['name']} : {label} {o[k]} → {e.get(k, 0)}.")
         if climbs and o.get("climbCount") and e.get("climbCount", 0) < o["climbCount"] * MIN_CLIMB_RATIO:
@@ -664,7 +698,7 @@ def main():
             sys.exit(f"Aucun type de prise pour {cfg['name']} : source CruxCoach introuvable ({a.types_ref}). "
                      "Génération arrêtée pour ne pas publier des prises sans modelage. "
                      "Corriger --types-ref, ou relancer avec --allow-missing-types.")
-        log(f"  {len(geo['holes'])} prises, {len(geo['outlines'])} avec contour réel, {typed} avec un type, "
+        log(f"  {len(geo['holes'])} prises, {len(geo['outlines'])} avec contour réel, {typed} avec un type, {len(geo.get('leds', {}))} LED, "
             f"{geo['width']} m de large, panneau {geo['panel']} m")
         cl, stamp = [], None
         if man:
@@ -700,7 +734,8 @@ def main():
                      {"list": [25, 40], "def": 40} if cfg["board"] == "moonboard"
                      else {"min": 0, "max": 70, "step": 5, "def": 40}),
                  "note": geo["note"], "approx": geo.get("approx"),
-                 "holes": geo["holes"], "outlines": geo["outlines"]}
+                 "holes": geo["holes"], "outlines": geo["outlines"],
+                 "leds": geo.get("leds", {}), "ble": BLE.get(cfg["board"])}
         boards.append(board)
         climbs += cl
         if not a.out:
@@ -708,6 +743,7 @@ def main():
             entries.append({"id": k, "name": cfg["name"], "maker": cfg["maker"],
                             "geometry": f"boards/{k}.json", "climbs": desc,
                             "holes": len(geo["holes"]), "outlines": len(geo["outlines"]), "typed": typed,
+                            "leds": len(geo.get("leds", {})),
                             "climbCount": desc["count"] if desc else 0, "snapshot": desc["snapshot"] if desc else None,
                             "holdTypesVersion": types.versions.get(cfg["board"])})
             log(f"  -> {size / 1e3:.0f} ko")

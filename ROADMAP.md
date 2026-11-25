@@ -80,9 +80,9 @@ Valeur : ★ utile · ★★ important · ★★★ ce qui distingue le projet.
 
 | Chantier | Détail | Effort | Valeur | Phase |
 |---|---|---|---|---|
-| Éditeur de blocs 3D | Composer un bloc en cliquant les prises, le voir à tous les angles, l'exporter | L | ★★★ | 3 |
-| Variante d'un bloc existant | Depuis la fiche d'un bloc : « Créer une variante » ouvre l'éditeur pré-rempli (prises et rôles) ; brouillons gardés dans le navigateur, partage par lien | M | ★★★ | 3 |
-| Allumer la board | Commande des LEDs Kilter/Tension en Bluetooth depuis le navigateur (Web Bluetooth : Chrome et Android, pas Safari iOS) ; étudier d'abord comment Boardsesh le fait | L | ★★★ | 4 |
+| ~~Éditeur de blocs 3D~~ ✅ | Toucher les prises (départ → main → top → pied → retirée, ou rôle imposé), annuler, nom, cotation proposée, style principal et règles (1–2 départs, 1–2 tops) en direct ; gardé tout seul dans « Mes blocs » (navigateur) ; lien partageable qui contient les prises. Reste : export vers les applis officielles (impossible sans leurs API), recherche d'un bloc identique dans le catalogue | L | ★★★ | 3 |
+| ~~Variante d'un bloc existant~~ ✅ | « Créer une variante » depuis la fiche : éditeur pré-rempli (prises, rôles, nom « (variante) »), lien « variante de … » gardé | M | ★★★ | 3 |
+| ~~Allumer la board~~ ✅ (à tester sur une vraie board) | Web Bluetooth (Chrome, Edge, Android ; pas Safari ni Firefox, iPhone via Bluefy) : protocole Aurora v2/v3 (Kilter, Tension, Decoy, Grasshopper) et MoonBoard d'après les specs de Boardsesh ; le bloc affiché s'allume, y compris pendant la création ; « Éteindre ». Reste : essai sur boîtiers réels, MoonBoard Pro (protocole binaire non documenté), option « prise au-dessus » MoonBoard | L | ★★★ | 4 |
 | Réalité augmentée | Board à l'échelle 1 dans sa pièce (WebXR, téléphone) | L | ★★ | 4 |
 | Publier un bloc | Dépend des API officielles : à discuter avec Kilter / Boardsesh, pas de contournement | L | ★ | 4 |
 
@@ -105,4 +105,4 @@ Valeur : ★ utile · ★★ important · ★★★ ce qui distingue le projet.
 2. ~~Ajouter les contrôles de génération.~~ ✅
 3. ~~Refonte du panneau (board / recherche de blocs / fiche bloc), filtres, tri, liens partageables et fichiers de blocs découpés.~~ ✅
 4. Écrire à Boardsesh et à CruxCoach.
-5. Éditeur de blocs et variantes d'un bloc existant ; l'analyse des mouvements en dernier.
+5. ~~Éditeur de blocs et variantes d'un bloc existant~~ ✅ ; l'analyse des mouvements en dernier.

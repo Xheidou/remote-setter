@@ -126,6 +126,16 @@ main{position:relative;overflow:hidden;background:var(--scene)}
 .dims{display:flex;gap:16px;flex-wrap:wrap;padding:4px 14px 12px}
 .dims div{font-size:12px;color:var(--muted)}.dims strong{display:block;font:700 19px/1 "Barlow Condensed",sans-serif;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap}
 .boardedit{padding:10px 14px 12px;border-top:1px solid var(--line)}
+/* Allumer la board (Bluetooth) */
+.blerow{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;padding:0 14px 12px}
+.blebtn,.bleoff{display:inline-flex;align-items:center;gap:6px;font:600 14px Barlow,sans-serif;min-height:36px;padding:4px 12px;border-radius:8px;border:1px solid var(--line);background:var(--soft);color:var(--ink);cursor:pointer;flex:none}
+.blebtn:disabled{opacity:.5;cursor:default}
+.blebtn.on{border-color:color-mix(in srgb,#3b82f6 60%,var(--line));color:light-dark(#1d4ed8,#93c5fd)}
+.blebtn.on::before{content:"";width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 6px #22c55e}
+.blestat{margin:0;flex-basis:100%;font-size:12px;color:var(--muted)}
+.blestat:empty{display:none}
+.blestat.warn{color:light-dark(#b45309,#fbbf24)}
+.mboard.ble-on .mang::after{content:"";display:inline-block;width:8px;height:8px;margin-left:6px;border-radius:50%;background:#22c55e;box-shadow:0 0 6px #22c55e;vertical-align:2px}
 /* Cadrage et affichage */
 .toolbar{position:absolute;right:14px;top:14px;display:flex;flex-direction:column;align-items:flex-end;gap:6px;pointer-events:none;max-width:calc(100% - 372px)}
 .views{display:flex;gap:6px;pointer-events:auto;flex-wrap:wrap;justify-content:flex-end}
@@ -164,6 +174,38 @@ main{position:relative;overflow:hidden;background:var(--scene)}
 .froles i{width:9px;height:9px;border-radius:50%;display:inline-block;margin-left:4px}
 .err{position:absolute;inset:0;display:grid;place-items:center;padding:24px;text-align:center;color:var(--muted)}
 
+/* Mes blocs et création */
+.mine{display:flex;flex-direction:column;gap:6px}
+.create-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:42px;border-radius:8px;border:1px dashed color-mix(in srgb,var(--accent) 60%,var(--line));background:color-mix(in srgb,var(--accent) 8%,transparent);color:var(--accent-ink);font:600 15px Barlow,sans-serif;cursor:pointer}
+.create-btn:hover{background:color-mix(in srgb,var(--accent) 14%,transparent)}
+.minebox>summary{font-size:14px;color:var(--ink)}
+.minebox #mineCount{color:var(--muted);font-weight:500}
+#mineList{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:8px;margin-top:4px;overflow:hidden}
+#mineList .row{border-bottom:1px solid var(--line)}
+#mineList .row:last-child{border-bottom:0}
+.mineflag{font-size:11px;font-weight:600;padding:2px 6px;border-radius:4px;background:color-mix(in srgb,#22c55e 18%,transparent);color:light-dark(#15803d,#86efac);margin-left:6px;vertical-align:2px}
+.factions .danger{color:#e11d48;border-color:color-mix(in srgb,#e11d48 50%,var(--line))}
+/* Carte de création, à la place de la fiche */
+.editor{position:absolute;left:14px;bottom:14px;z-index:1;width:min(460px,calc(100% - 28px));display:flex;flex-direction:column;gap:8px;border-color:color-mix(in srgb,var(--accent) 55%,var(--line))}
+.ehead{display:flex;gap:8px}
+.ehead input{flex:1;min-width:0;font:700 20px/1.1 "Barlow Condensed",sans-serif;min-height:42px;padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:var(--soft);color:var(--ink)}
+.ehead select{width:auto;min-height:42px;padding:4px 8px;font-size:14px}
+.eroles{display:flex;gap:4px;flex-wrap:wrap}
+.eroles button{display:inline-flex;align-items:center;gap:6px;font:600 14px Barlow,sans-serif;min-height:38px;padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--soft);color:var(--ink);cursor:pointer}
+.eroles button i{width:10px;height:10px;border-radius:50%;display:inline-block}
+.eroles button[aria-pressed=true]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+.estat{margin:0;font-size:14px;color:var(--ink);display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}
+.estat .style{font-size:14px}
+.ehint{margin:0;font-size:13px;color:var(--muted)}
+.ehint.warn{color:light-dark(#b45309,#fbbf24)}
+.ehint.ok{color:light-dark(#15803d,#86efac)}
+.eactions{display:flex;gap:6px;flex-wrap:wrap}
+.eactions button{font:600 14px Barlow,sans-serif;min-height:38px;padding:4px 12px;border-radius:8px;border:1px solid var(--line);background:var(--soft);color:var(--ink);cursor:pointer}
+.eactions button:disabled{opacity:.45;cursor:default}
+.eactions button,.factions button{flex:none}                /* passer à la ligne plutôt que rétrécir */
+.eactions .primary{margin-left:auto;background:var(--ink);color:var(--panel);border-color:var(--ink)}
+body.editing .fiche{display:none!important}
+
 /* Éléments propres au téléphone, masqués sur grand écran */
 .mbar,.mhead,.scrim,.ftoggle,.views .sm{display:none}
 /* Fiche : ligne style + navigation dans la liste, détail */
@@ -196,6 +238,9 @@ main{position:relative;overflow:hidden;background:var(--scene)}
   .fgrade{font-size:20px}
   .ftoggle{display:inline-flex;align-items:center;gap:4px}
   .fiche:not(.open) .fdetail{display:none}
+  .editor{left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom));width:auto;max-height:62dvh;overflow-y:auto;padding:10px 12px;gap:6px}
+  .ehead input{font-size:18px}
+  .eroles button{min-height:36px;padding:3px 9px;font-size:13px}
   /* Feuilles */
   .scrim{display:block;position:fixed;inset:0;z-index:20;background:rgba(8,10,12,.45)}
   .mhead{display:flex;align-items:center;justify-content:space-between;gap:8px}

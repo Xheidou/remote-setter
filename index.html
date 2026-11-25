@@ -33,6 +33,17 @@
       <select id="sort" class="sort"></select>
     </div>
     <div class="active" id="fActive" aria-label="Filtres actifs"></div>
+    <!-- Mes blocs : créés ici, gardés dans ce navigateur -->
+    <div class="mine">
+      <button type="button" class="create-btn" id="newClimb">
+        <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+        Créer un bloc
+      </button>
+      <details class="minebox" id="mineBox" hidden>
+        <summary>Mes blocs <span id="mineCount"></span></summary>
+        <div id="mineList" role="list"></div>
+      </details>
+    </div>
     <p class="count" id="count" role="status">—</p>
     <div id="list" role="list"></div>
     <button type="button" class="more-btn" id="moreRes" hidden>Afficher plus</button>
@@ -86,6 +97,15 @@
       <div><strong id="dTop">—</strong>sommet / tapis</div>
       <div><strong id="dOver">—</strong>dévers</div>
       <div><strong id="dSize">—</strong>panneau</div>
+    </div>
+    <!-- Allumer la board : Web Bluetooth -->
+    <div class="blerow">
+      <button type="button" class="blebtn" id="bleBtn">
+        <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M6 6.5l8 7-4 3.5V3l4 3.5-8 7" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span id="bleLab">Allumer la board</span>
+      </button>
+      <button type="button" class="bleoff" id="bleOff" hidden>Éteindre</button>
+      <p class="blestat" id="bleStat" role="status"></p>
     </div>
     <div class="boardedit" id="boardEdit" hidden>
       <label for="board">Modèle</label>
@@ -141,10 +161,36 @@
     <div class="fangles" id="fAngles" role="group" aria-label="Cotation selon l'angle"></div>
     <div class="allangles" id="fAllAngles" hidden></div>
     <div class="factions">
+      <button type="button" id="aEdit" hidden>Modifier</button>
       <button type="button" id="aShare">Copier le lien</button>
       <button type="button" id="aFav" aria-pressed="false">Ajouter aux favoris</button>
+      <button type="button" id="aVariant">Créer une variante</button>
+      <button type="button" id="aSaveCopy" hidden>Enregistrer dans mes blocs</button>
+      <button type="button" class="danger" id="aDelete" hidden>Supprimer</button>
       <span class="froles"><i style="background:#22c55e"></i>départ <i style="background:#06b6d4"></i>main <i style="background:#d946ef"></i>top <i style="background:#f59e0b"></i>pied</span>
     </div>
+    </div>
+  </div>
+  <!-- Création d'un bloc : toucher les prises -->
+  <div class="card editor" id="editor" hidden aria-label="Création d'un bloc">
+    <div class="ehead">
+      <input type="text" id="eName" placeholder="Nom du bloc" maxlength="60" aria-label="Nom du bloc" autocomplete="off">
+      <select id="eGrade" aria-label="Cotation proposée"></select>
+    </div>
+    <div class="eroles" id="eRoles" role="group" aria-label="Rôle posé en touchant une prise">
+      <button type="button" data-r="auto" aria-pressed="true" title="Chaque toucher fait défiler : départ, main, top, pied, retirée">↻ Auto</button>
+      <button type="button" data-r="start" aria-pressed="false"><i style="background:#22c55e"></i>Départ</button>
+      <button type="button" data-r="hand" aria-pressed="false"><i style="background:#06b6d4"></i>Main</button>
+      <button type="button" data-r="finish" aria-pressed="false"><i style="background:#d946ef"></i>Top</button>
+      <button type="button" data-r="foot" aria-pressed="false"><i style="background:#f59e0b"></i>Pied</button>
+    </div>
+    <p class="estat" id="eStat" role="status"></p>
+    <p class="ehint" id="eHint"></p>
+    <div class="eactions">
+      <button type="button" id="eUndo" disabled>↶ Annuler</button>
+      <button type="button" id="eClear">Tout effacer</button>
+      <button type="button" id="eShare">Copier le lien</button>
+      <button type="button" class="primary" id="eDone">Terminer</button>
     </div>
   </div>
 </main>
